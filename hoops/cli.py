@@ -226,7 +226,7 @@ def smoke(providers: str = "all", deciders: str = "rules") -> None:
 DEMOS = [
     # (file, footage type, rim box in proxy px or None, outputs)
     ("plos_shot_01.ogv", "fixed_camera", "768,240,824,266", "annotated_video,events,summary,court_map"),
-    ("plos_shot_04.ogv", "fixed_camera", None, "annotated_video,events,summary"),
+    ("plos_shot_04.ogv", "fixed_camera", "340,58,470,104", "annotated_video,events,summary,court_map"),
     ("bandits_practice_01.webm", "handheld", None, "annotated_video,events,summary"),
 ]
 
