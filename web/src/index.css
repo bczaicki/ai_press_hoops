@@ -1,0 +1,219 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens: "game night" broadcast graphics.
+ * - Near-black navy planes, hairline borders, glassy cards.
+ * - Hardwood orange is UI chrome only (CTAs, focus, brand). It never encodes data.
+ * - Data colors are validated with the dataviz six-checks script against the #0d1424 surface:
+ *   teams = blue #3987e5 / magenta #d55181 (all-pairs CVD dE 15.9); any extra team folds to gray.
+ *   Outcome = status palette (made / attempt / miss) and is ALWAYS paired with an icon or shape,
+ *   because green vs red collapses under deutan simulation.
+ */
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Barlow Condensed', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  --color-ink-950: #070b14;
+  --color-ink-900: #0a101d;
+  --color-ink-850: #0d1424;
+  --color-ink-800: #141c30;
+  --color-ink-750: #18223a;
+  --color-ink-700: #1d2740;
+  --color-ink-600: #2a3554;
+  --color-ink-500: #3a4768;
+
+  --color-fg: #f4f6fb;
+  --color-fg-2: #a3adc2;
+  --color-fg-3: #7d879c;
+
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-line-strong: rgb(255 255 255 / 0.14);
+
+  --color-flame-200: #ffd2b0;
+  --color-flame-300: #ffb27a;
+  --color-flame-400: #ff9447;
+  --color-flame-500: #ff7a1a;
+  --color-flame-600: #e5600a;
+  --color-flame-700: #b84a06;
+
+  --color-wood-300: #e8c08f;
+  --color-wood-400: #d9a066;
+  --color-wood-500: #c68642;
+
+  /* status (fixed, reserved meaning) */
+  --color-made: #0ca30c;
+  --color-made-text: #34c759;
+  --color-attempt: #fab219;
+  --color-miss: #d03b3b;
+  --color-miss-text: #ff6b6b;
+
+  /* categorical (team identity) */
+  --color-team-a: #3987e5;
+  --color-team-b: #d55181;
+  --color-team-other: #8a94a9;
+
+  /* chart chrome */
+  --color-grid: #1f2a42;
+  --color-axis: #33405e;
+
+  --radius-card: 1.125rem;
+
+  --animate-ring-pulse: ring-pulse 1.6s ease-out infinite;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-float-in: float-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
+  @keyframes ring-pulse {
+    0% {
+      transform: scale(1);
+      opacity: 0.85;
+    }
+    70% {
+      transform: scale(2.1);
+      opacity: 0;
+    }
+    100% {
+      transform: scale(2.1);
+      opacity: 0;
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: -200% 0;
+    }
+    to {
+      background-position: 200% 0;
+    }
+  }
+  @keyframes float-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--color-ink-950);
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    min-height: 100dvh;
+    background: var(--color-ink-950);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+  ::selection {
+    background: rgb(255 122 26 / 0.35);
+    color: #fff;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-flame-400);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  button,
+  [role='button'],
+  label[for] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+  select option {
+    background: var(--color-ink-800);
+    color: var(--color-fg);
+  }
+  video::cue {
+    background: rgb(7 11 20 / 0.82);
+    color: #fff;
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+  }
+}
+
+/* Glassy broadcast card with hairline border and a faint top sheen. */
+@utility glass {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.05), rgb(255 255 255 / 0.015) 40%, rgb(255 255 255 / 0.01)),
+    rgb(13 20 36 / 0.72);
+  border: 1px solid var(--color-line);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.05),
+    0 18px 40px -24px rgb(0 0 0 / 0.8);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+}
+
+/* Big broadcast numerals (proportional figures; condensed display face is the brand here). */
+@utility numeral {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: 0.005em;
+  font-variant-numeric: proportional-nums lining-nums;
+}
+
+@utility eyebrow {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-fg-3);
+}
+
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility skeleton {
+  background: linear-gradient(
+    90deg,
+    rgb(255 255 255 / 0.04) 0%,
+    rgb(255 255 255 / 0.09) 50%,
+    rgb(255 255 255 / 0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+  border-radius: 0.6rem;
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .glass {
+    border: 1px solid CanvasText;
+  }
+}
