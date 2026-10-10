@@ -195,10 +195,20 @@ def keyword_route(question: str) -> str:
     return "explain_play"
 
 
+# A question naming a moment ("0:12", "at 12s") is about that play, whatever else it says.
+MOMENT_RE = re.compile(
+    r"\b\d{1,2}:\d{2}(?:\.\d+)?\b|\bat\s+\d+(?:\.\d+)?\s*s(?:ec(?:onds?)?)?\b", re.IGNORECASE
+)
+MIN_ROUTE_CONFIDENCE = 0.6  # below this, the keyword router decides
+
+
 def route_question(
     question: str, decider: Any = None, history: Sequence[tuple[str, str]] = ()
 ) -> tuple[str, dict | None]:
-    """(route, decision record or None). Falls back to keywords when the decider fails or answers off-menu."""
+    """(route, decision record or None). Falls back to keywords when the decider fails, answers off-menu,
+    or isn't confident."""
+    if MOMENT_RE.search(question):
+        return "explain_play", {"decider": "rule", "reason": "the question names a moment"}
     if decider is None:
         return keyword_route(question), None
     state = {"question": question}
@@ -221,8 +231,12 @@ def route_question(
         "cost_usd": res.cost_usd,
         "latency_ms": res.latency_ms,
     }
-    if ans is not None and str(ans.value) in ROUTES:
+    confident = ans is not None and (ans.confidence is None or ans.confidence >= MIN_ROUTE_CONFIDENCE)
+    if ans is not None and str(ans.value) in ROUTES and confident:
         return str(ans.value), decision
+    if ans is not None and not confident and not res.error:
+        decision.update(fallback="keywords", reason="low routing confidence")
+        return keyword_route(question), decision
     decision.update(
         error=res.error or f"unexpected route {getattr(ans, 'value', None)!r}", fallback="keywords"
     )
