@@ -79,6 +79,7 @@ target-version = "py312"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not slow'"  # run model-downloading tests with: pytest -m slow
 markers = [
     "slow: needs model weights or network",
     "live: calls a paid API (opt-in with HOOPS_LIVE=1)",

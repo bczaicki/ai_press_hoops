@@ -220,21 +220,21 @@ def run_analysis(
     if needs_cv:
         p.start("detect")
         try:
-            from hoops.perception.run import run_perception
+            from hoops.perception.run import PerceptionCancelled, run_perception
 
-            det_entry = (
-                registry.detectors.entry(req.detector) if req.detector in _keys(registry.detectors) else None
-            )
-            perc = run_perception(
-                proxy,
-                detector_key=req.detector,
-                tracker_key=req.tracker,
-                stride=max(1, req.stride),
-                scene_cuts_s=clip.scene_cuts_s,
-                rim_box=rim_box,
-                progress=p.cb("detect"),
-                cancel=(lambda: ctx.cancelled) if ctx else None,
-            )
+            try:
+                perc = run_perception(
+                    proxy,
+                    detector_key=req.detector,
+                    tracker_key=req.tracker,
+                    stride=max(1, req.stride),
+                    scene_cuts_s=clip.scene_cuts_s,
+                    rim_box=rim_box,
+                    progress=p.cb("detect"),
+                    cancel=(lambda: ctx.cancelled) if ctx else None,
+                )
+            except PerceptionCancelled as exc:
+                raise Cancelled() from exc
             detections = perc.detections
             run.tracks = perc.tracks
             rim_box = perc.rim_box or rim_box
@@ -243,15 +243,25 @@ def run_analysis(
             det_path = run_dir / "detections.parquet"
             detections.to_parquet(det_path, index=False)
             run.detections_path = store.rel(det_path)
+            dinfo = getattr(perc, "detector_info", None) or {}
+            tinfo = getattr(perc, "tracker_info", None) or {}
             run.pipeline.append(
                 StageConfig(
                     stage="detect",
                     impl=req.detector,
-                    license=det_entry.license if det_entry else None,
-                    params={"stride": req.stride},
+                    version=_s(dinfo.get("version")),
+                    license=_s(dinfo.get("license")),
+                    params={"stride": req.stride, "device": _s(dinfo.get("device"))},
                 )
             )
-            run.pipeline.append(StageConfig(stage="track", impl=req.tracker))
+            run.pipeline.append(
+                StageConfig(
+                    stage="track",
+                    impl=req.tracker,
+                    version=_s(tinfo.get("version")),
+                    license=_s(tinfo.get("license")),
+                )
+            )
             p.done("detect", f"{perc.frames_processed} frames at {perc.fps_measured:.1f} fps")
             p.done("track")
         except Cancelled:
@@ -263,10 +273,13 @@ def run_analysis(
         # Teams (best effort, part of tracking)
         if detections is not None and len(detections):
             try:
-                from hoops.perception.teams import assign_teams
+                from hoops.perception.teams import assign_teams, track_teams
 
                 detections, run.teams = assign_teams(proxy, detections, method="hsv")
                 detections.to_parquet(run_dir / "detections.parquet", index=False)
+                team_of = track_teams(detections)
+                for tr in run.tracks:
+                    tr.team_id = team_of.get(tr.track_id) or tr.team_id
             except Exception as exc:  # noqa: BLE001
                 run.warnings.append(f"Team split skipped: {exc}")
 
@@ -507,8 +520,8 @@ class _Progress:
         return lambda f, m="": None
 
 
-def _keys(reg: registry.Registry) -> set[str]:
-    return {e.key for e in reg.entries()}
+def _s(value: object) -> str | None:
+    return None if value is None else str(value)
 
 
 def _stage_failed(run: AnalysisRun, p: _Progress, stage: str, exc: Exception) -> None:

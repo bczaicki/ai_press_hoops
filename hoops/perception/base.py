@@ -63,6 +63,9 @@ class Detector(Protocol):
         """{'impl', 'version', 'license', 'device', 'classes'} for the run manifest."""
         ...
 
+    # Optional: ``set_clock(frame_index: int, t_s: float)`` is called before each detect() when present
+    # (scripted/fake detectors use it to replay detections by time).
+
 
 @runtime_checkable
 class Tracker(Protocol):
