@@ -287,6 +287,10 @@ def run_analysis(
         if run.clip.footage_type == "unknown" and detections is not None:
             _triage(run, decider, detections, clip)
 
+        # No rim marked and none detected (e.g. COCO): suggest hoops zero-shot, keep the one the ball approaches
+        if detections is not None and rim_box is None and not (detections["cls"] == "rim").any():
+            rim_box = _auto_rim(run, proxy, detections)
+
         # Shots
         if detections is not None:
             p.start("shots")
@@ -646,6 +650,40 @@ def _triage(run: AnalysisRun, decider: Any, detections: Any, clip: ClipMeta) -> 
         run.clip.footage_type, run.clip.footage_type_source = footage, "system_one"
     except Exception as exc:  # noqa: BLE001
         run.warnings.append(f"Footage triage skipped: {exc}")
+
+
+def _auto_rim(run: AnalysisRun, proxy: Path, detections: Any) -> tuple[float, float, float, float] | None:
+    try:
+        from hoops.frames import frames_at
+        from hoops.perception.rim_finder import pick_active_rim, suggest_rims
+
+        dur = run.clip.proxy.duration_s
+        suggestions = []
+        for _, rgb in frames_at(proxy, [dur * 0.1, dur * 0.5]):
+            suggestions += suggest_rims(rgb)
+        best = pick_active_rim(suggestions, detections)
+    except Exception as exc:  # noqa: BLE001
+        run.warnings.append(
+            f"Couldn't find the rim automatically ({exc}); mark it on the clip to detect shots"
+        )
+        return None
+    if best is None:
+        run.warnings.append("No rim found: mark the rim on the clip to detect shots")
+        return None
+    box = tuple(round(v, 1) for v in best.box)
+    run.warnings = [w for w in run.warnings if not w.startswith("No stable rim box")]
+    run.pipeline.append(
+        StageConfig(
+            stage="rim",
+            impl="owlv2:zero-shot",
+            license="Apache-2.0",
+            params={"box": list(box), "score": best.score, "auto": True},
+        )
+    )
+    run.warnings.append(
+        "Rim found automatically: if the rim box in the video is on the wrong hoop, mark the rim and re-run"
+    )
+    return box  # type: ignore[return-value]
 
 
 def _rim_crops_fn(proxy: Path):

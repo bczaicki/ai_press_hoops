@@ -94,6 +94,13 @@ Unavailable items still appear, with `available: false` and a human `reason` suc
 - `ClipCard = {"clip_id", "original_filename", "duration_s", "footage_type", "poster_url", "created_at"}`
 - `ClipView = ClipMeta & {"urls": {"master": "/media/clips/<id>/master.mp4", "proxy": "/media/clips/<id>/proxy_720p.mp4", "poster": "/media/clips/<id>/poster.jpg"}}`
 
+`GET /api/clips/{clip_id}/rim-suggestions` → `[{"box": [x1, y1, x2, y2], "score": float, "t_s": float}]`
+- Up to 4 likely rims in proxy pixels, best first, found zero-shot (OWLv2) on frames at 10% and 50% of the clip.
+- Show them as tappable boxes on the poster ("Tap the hoop being played at"); the tapped box becomes `rim_box`.
+- An empty list means no hoop is visible.
+- The first call takes a few seconds (model load); results are then cached per clip.
+- When a run has no `rim_box` and the detector finds no rim, the pipeline picks the suggested hoop the ball approaches and adds a run warning.
+
 ## Runs
 `RunRequest`:
 ```json

@@ -413,6 +413,25 @@ def create_app(store: Store | None = None) -> FastAPI:
         st().save_clip(c)
         return {**c.model_dump(mode="json"), "urls": clip_urls(c)}
 
+    @app.get("/api/clips/{clip_id}/rim-suggestions")
+    def rim_suggestions(clip_id: str) -> list[dict]:
+        """Likely rims (proxy pixels) for the 'tap the hoop being played at' step; cached per clip."""
+        c = load_clip(clip_id)
+        cache = st().clip_dir(c.clip_id) / "rim_suggestions.json"
+        if cache.exists():
+            return json.loads(cache.read_text())
+        from hoops.frames import frames_at
+        from hoops.perception.rim_finder import suggest_rims
+
+        out: list[dict] = []
+        for t, rgb in frames_at(st().abs(c.proxy.path), [c.proxy.duration_s * 0.1, c.proxy.duration_s * 0.5]):
+            for s in suggest_rims(rgb):
+                if all(_box_iou(s.box, tuple(o["box"])) < 0.3 for o in out):
+                    out.append({"box": [round(v, 1) for v in s.box], "score": s.score, "t_s": round(t, 2)})
+        out.sort(key=lambda o: -o["score"])
+        cache.write_text(json.dumps(out[:4]))
+        return out[:4]
+
     # ------------------------------------------------------------------ runs
     def run_view(run: AnalysisRun) -> dict:
         def media(rel: str | None) -> str | None:
@@ -663,6 +682,13 @@ def _courts() -> list[dict]:
             }
         )
     return out
+
+
+def _box_iou(a: tuple, b: tuple) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - ix * iy
+    return ix * iy / union if union > 0 else 0.0
 
 
 def _refresh_stats(run: AnalysisRun) -> None:
