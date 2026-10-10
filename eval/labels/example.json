@@ -1,0 +1,10 @@
+{
+  "clip_id": "example0000000000",
+  "footage_type": "fixed_camera",
+  "events": [
+    {"t_s": 4.2, "type": "made_shot", "note": "layup, white #4"},
+    {"t_s": 17.8, "type": "missed_shot", "note": "corner three, rim out"},
+    {"t_s": 18.9, "type": "made_shot", "note": "put-back after the miss counts as its own attempt"},
+    {"t_s": 41.0, "type": "shot_attempt", "note": "outcome hidden behind a player"}
+  ]
+}
