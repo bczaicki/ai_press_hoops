@@ -23,8 +23,8 @@ function Stat({ label, value, sub, hint, big }: { label: string; value: string |
   return (
     <Tip content={hint}>
       <div tabIndex={0} className="min-w-0 rounded-lg px-1 text-center outline-none focus-visible:ring-2 focus-visible:ring-flame-400">
-        <div className="eyebrow text-[0.62rem] sm:text-[0.7rem]">{label}</div>
-        <div className={cn('numeral mt-0.5 text-fg', big ? 'text-5xl sm:text-6xl' : 'text-3xl sm:text-4xl')}>
+        <div className="eyebrow text-[0.62rem] @3xl:text-[0.7rem]">{label}</div>
+        <div className={cn('numeral mt-0.5 whitespace-nowrap text-fg', big ? 'text-5xl @3xl:text-6xl' : 'text-3xl @3xl:text-4xl')}>
           <Ticker value={value} />
           {sub && <span className="ml-0.5 text-[0.55em] text-fg-3">{sub}</span>}
         </div>
@@ -77,13 +77,16 @@ export function Scoreboard({
   const leader = rows.length === 2 && rows[0].stats.pts !== rows[1].stats.pts ? (rows[0].stats.pts > rows[1].stats.pts ? rows[0].team.team_id : rows[1].team.team_id) : null
 
   return (
-    <section aria-label="Scoreboard" className="glass overflow-hidden rounded-[var(--radius-card)]">
+    <section aria-label="Scoreboard" className="glass @container overflow-hidden rounded-[var(--radius-card)]">
       <div className="divide-y divide-line">
         {rows.map((r) => {
           const color = r.team.team_id === '_all' ? 'var(--color-team-other)' : teamColor(r.team.team_id, allTeams)
           const s = r.stats
           return (
-            <div key={r.team.team_id} className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 pr-3 pl-5 sm:grid-cols-[minmax(0,14rem)_repeat(4,minmax(0,1fr))_minmax(0,1fr)] sm:gap-2 sm:pr-5 sm:pl-6">
+            <div
+              key={r.team.team_id}
+              className="relative grid grid-cols-[minmax(0,1fr)_repeat(2,auto)] items-center gap-3 py-3 pr-3 pl-5 @lg:grid-cols-[minmax(0,1fr)_repeat(3,minmax(4.5rem,auto))] @3xl:grid-cols-[minmax(0,14rem)_repeat(5,minmax(0,1fr))] @3xl:gap-2 @3xl:pr-5 @3xl:pl-6"
+            >
               <span aria-hidden className="absolute inset-y-0 left-0 w-1.5" style={{ background: color }} />
               <div className="flex min-w-0 items-center gap-2.5">
                 {r.team.color_hex && (
@@ -92,30 +95,21 @@ export function Scoreboard({
                   </Tip>
                 )}
                 <div className="min-w-0">
-                  <div className="truncate font-display text-xl font-bold tracking-wide text-fg uppercase sm:text-2xl">{teamName(r.team.team_id, allTeams)}</div>
+                  <div className="truncate font-display text-xl font-bold tracking-wide text-fg uppercase @3xl:text-2xl">{teamName(r.team.team_id, allTeams)}</div>
                   {leader === r.team.team_id && <div className="eyebrow text-[0.6rem] text-flame-300">Leading</div>}
                 </div>
               </div>
-              {/* phone: points + FG only */}
-              <div className="flex items-center gap-4 sm:hidden">
-                <Stat label="FG" value={`${s.fgm}/${s.fga}`} hint="Field goals made / attempted" />
-                <Stat label="PTS" value={s.pts} hint="Points from made shots" big />
-              </div>
-              <div className="hidden sm:block">
-                <Stat label="FG" value={`${s.fgm}/${s.fga}`} hint="Field goals made / attempted" />
-              </div>
-              <div className="hidden sm:block">
+              <Stat label="FG" value={`${s.fgm}/${s.fga}`} hint="Field goals made / attempted" />
+              <div className="hidden @lg:block">
                 <Stat label="FG%" value={s.fga ? fmtPct(s.fgm / s.fga) : '—'} hint="Field-goal percentage" />
               </div>
-              <div className="hidden sm:block">
+              <div className="hidden @3xl:block">
                 <Stat label="3PT" value={`${s.tpm}/${s.tpa}`} hint="Threes made / attempted" />
               </div>
-              <div className="hidden sm:block">
+              <div className="hidden @3xl:block">
                 <Stat label="REB" value={s.reb} hint="Rebounds (when detected)" />
               </div>
-              <div className="hidden sm:block">
-                <Stat label="PTS" value={s.pts} hint="Points from made shots" big />
-              </div>
+              <Stat label="PTS" value={s.pts} hint="Points from made shots" big />
             </div>
           )
         })}
@@ -130,7 +124,7 @@ export function Scoreboard({
             <span className="relative size-2 rounded-full bg-attempt" />
           </span>
           <span className="min-w-0 flex-1">
-            Includes {provisional} provisional call{provisional === 1 ? '' : 's'}.{' '}
+            {provisional > 0 && <>Includes {provisional} provisional call{provisional === 1 ? '' : 's'}. </>}
             {needsReview > 0 && (
               <b className="text-fg">
                 {needsReview} close call{needsReview === 1 ? '' : 's'} need{needsReview === 1 ? 's' : ''} your eyes.

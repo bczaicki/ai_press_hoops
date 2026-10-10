@@ -111,7 +111,11 @@ export function ProviderCards({ providers, value, onChange }: { providers: Provi
                 </motion.span>
               )}
             </span>
-            <span className="relative mt-1 font-mono text-[0.72rem] break-all text-fg-3">{p ? p.default_model : <span className="font-sans text-xs">Computer vision + System One only. Free.</span>}</span>
+            {p ? (
+              <span className="relative mt-1 font-mono text-[0.72rem] break-all text-fg-3">{p.default_model}</span>
+            ) : (
+              <span className="relative mt-1 text-xs text-fg-3">Computer vision + System One only. Free.</span>
+            )}
             {disabled && p?.reason && <span className="relative mt-1.5 line-clamp-3 text-[0.72rem] leading-snug text-attempt/90">{p.reason}</span>}
             <span className="relative mt-auto flex flex-wrap gap-1 pt-2">
               {p?.local && (
