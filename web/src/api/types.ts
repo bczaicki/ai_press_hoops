@@ -341,6 +341,25 @@ export interface Caps {
   max_clip_seconds: number
 }
 
+/** /api/config courts[]: landmark names are the only valid court_points[].name values. */
+export interface CourtLandmark {
+  name: string
+  label: string
+  /** feet from center court, toward the filmed basket */
+  x_ft: number
+  /** feet from center court, across; +y is camera-left (camera at half court facing the filmed basket) */
+  y_ft: number
+  filmed_half: boolean
+}
+
+export interface CourtSpec {
+  key: string
+  label: string
+  length_ft: number
+  width_ft: number
+  landmarks: CourtLandmark[]
+}
+
 export interface AppConfig {
   version: string
   providers: ProviderInfo[]
@@ -351,6 +370,8 @@ export interface AppConfig {
   prompt_presets: KeyLabel[]
   outputs: KeyLabel<OutputKind>[]
   footage_types: FootageType[]
+  /** Added after v0; optional so older servers still work. */
+  courts?: CourtSpec[]
   caps: Caps
   spend: { session_usd: number }
 }

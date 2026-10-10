@@ -99,19 +99,20 @@ export function ProviderCards({ providers, value, onChange }: { providers: Provi
             className={cn(
               'relative flex h-full min-h-[5.5rem] w-full flex-col items-start overflow-hidden rounded-2xl border p-3.5 text-left transition-all duration-200',
               active ? 'border-flame-500/70 bg-flame-500/[0.08] shadow-[0_0_0_1px_rgb(255_122_26/0.25)]' : 'border-line-strong bg-white/[0.025] hover:border-white/25',
-              disabled && 'cursor-not-allowed opacity-45 hover:border-line-strong',
+              disabled && 'cursor-not-allowed border-dashed bg-transparent hover:border-line-strong [&>span:first-of-type]:opacity-40',
             )}
           >
             <span aria-hidden className={cn('pointer-events-none absolute inset-0 bg-gradient-to-br to-transparent opacity-80', p ? (PROVIDER_ACCENT[p.key] ?? 'from-white/10') : 'from-white/5')} />
             <span className="relative flex w-full items-start justify-between gap-2">
-              <span className="font-semibold leading-tight text-fg">{p ? p.label.replace(/\s*\(.*\)$/, '') : 'No AI'}</span>
+              <span className={cn('font-semibold leading-tight', disabled ? 'text-fg-2' : 'text-fg')}>{p ? p.label.replace(/\s*\(.*\)$/, '') : 'No AI'}</span>
               {active && (
                 <motion.span layoutId="prov-check" className="grid size-5 shrink-0 place-items-center rounded-full bg-flame-500 text-ink-950">
                   <Check className="size-3" strokeWidth={3.5} aria-hidden />
                 </motion.span>
               )}
             </span>
-            <span className="relative mt-1 text-xs text-fg-3">{p ? (p.label.match(/\((.*)\)$/)?.[1] ?? p.default_model) : 'Computer vision + System One only. Free.'}</span>
+            <span className="relative mt-1 font-mono text-[0.72rem] break-all text-fg-3">{p ? p.default_model : <span className="font-sans text-xs">Computer vision + System One only. Free.</span>}</span>
+            {disabled && p?.reason && <span className="relative mt-1.5 line-clamp-3 text-[0.72rem] leading-snug text-attempt/90">{p.reason}</span>}
             <span className="relative mt-auto flex flex-wrap gap-1 pt-2">
               {p?.local && (
                 <Badge tone="made" icon={<HardDrive className="size-3" aria-hidden />}>

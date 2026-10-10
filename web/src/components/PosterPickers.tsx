@@ -1,9 +1,10 @@
 import { Check, Crosshair, RotateCcw, Undo2 } from 'lucide-react'
 import { useRef, useState, type PointerEvent, type ReactNode } from 'react'
 
-import type { CourtPoint } from '../api/types'
+import type { CourtPoint, CourtSpec } from '../api/types'
 import { cn } from '../lib/format'
 import { Button } from './ui/button'
+import { Select } from './ui/misc'
 
 export type Box = [number, number, number, number]
 type Pt = [number, number]
@@ -189,37 +190,64 @@ export function RimPicker({ poster, width, height, value, onChange }: { poster: 
 
 // ------------------------------------------------------------------ court calibration
 
-export const COURT_LANDMARKS: { name: string; label: string; court: Pt }[] = [
-  { name: 'baseline_left_corner', label: 'Baseline, left corner', court: [-47, -25] },
-  { name: 'baseline_right_corner', label: 'Baseline, right corner', court: [-47, 25] },
-  { name: 'lane_baseline_left', label: 'Paint, left side at baseline', court: [-47, -8] },
-  { name: 'lane_baseline_right', label: 'Paint, right side at baseline', court: [-47, 8] },
-  { name: 'free_throw_left', label: 'Free-throw line, left end', court: [-28, -8] },
-  { name: 'free_throw_right', label: 'Free-throw line, right end', court: [-28, 8] },
-  { name: 'halfcourt_left', label: 'Half-court line, left sideline', court: [0, -25] },
-  { name: 'halfcourt_right', label: 'Half-court line, right sideline', court: [0, 25] },
-]
+/** Used only when an older server sends no `courts` in /api/config. */
+const FALLBACK_COURT: CourtSpec = {
+  key: 'nba',
+  label: 'NBA',
+  length_ft: 94,
+  width_ft: 50,
+  landmarks: [
+    { name: 'baseline_left_corner', label: 'Baseline left corner', x_ft: 47, y_ft: 25, filmed_half: true },
+    { name: 'baseline_right_corner', label: 'Baseline right corner', x_ft: 47, y_ft: -25, filmed_half: true },
+    { name: 'free_throw_left', label: 'Free-throw line, left end', x_ft: 28, y_ft: 8, filmed_half: true },
+    { name: 'free_throw_right', label: 'Free-throw line, right end', x_ft: 28, y_ft: -8, filmed_half: true },
+    { name: 'halfcourt_left', label: 'Half-court line, left sideline', x_ft: 0, y_ft: 25, filmed_half: true },
+    { name: 'halfcourt_right', label: 'Half-court line, right sideline', x_ft: 0, y_ft: -25, filmed_half: true },
+  ],
+}
 
-function MiniCourt({ active, placed }: { active: string | null; placed: Set<string> }) {
-  // Half court, baseline at the top; (x, y) feet → svg (y + 25, x + 47).
+/**
+ * Full court, filmed basket at the TOP, as the camera sees it (camera-left = diagram left).
+ * Court feet (x toward the filmed basket, +y camera-left) -> svg (W/2 - y, L/2 - x).
+ */
+function MiniCourt({ court, next, placed }: { court: CourtSpec; next: string | null; placed: Set<string> }) {
+  const L = court.length_ft
+  const Wd = court.width_ft
+  const hasFar = court.landmarks.some((l) => !l.filmed_half)
+  const viewH = hasFar ? L : L / 2 + 4
+  const toSvg = (x: number, y: number): [number, number] => [Wd / 2 - y, L / 2 - x]
   return (
-    <svg viewBox="-2 -2 54 51" className="h-32 w-auto shrink-0" aria-hidden>
-      <g fill="none" stroke="#e8c08f" strokeOpacity="0.55" strokeWidth="0.6">
-        <rect x="0" y="0" width="50" height="47" />
-        <rect x="17" y="0" width="16" height="19" />
-        <circle cx="25" cy="19" r="6" />
-        <path d="M3 0 V 14 A 23.75 23.75 0 0 0 47 14 V 0" />
-        <circle cx="25" cy="5.25" r="0.75" />
-        <path d="M19 47 A 6 6 0 0 1 31 47" />
+    <svg viewBox={`-3 -3 ${Wd + 6} ${viewH + 8}`} className={cn('w-auto shrink-0 self-center sm:self-start', hasFar ? 'h-52' : 'h-36')} aria-hidden>
+      <g fill="none" stroke="#e8c08f" strokeWidth="0.55">
+        <rect x="0" y="0" width={Wd} height={L} strokeOpacity="0.6" />
+        <line x1="0" y1={L / 2} x2={Wd} y2={L / 2} strokeOpacity="0.6" />
+        <circle cx={Wd / 2} cy={L / 2} r="6" strokeOpacity="0.6" />
+        <rect x={Wd / 2 - 8} y="0" width="16" height="19" strokeOpacity="0.6" />
+        <circle cx={Wd / 2} cy="19" r="6" strokeOpacity="0.6" />
+        <path d={`M${Wd / 2 - 22} 0 V 14 A 23.75 23.75 0 0 0 ${Wd / 2 + 22} 14 V 0`} strokeOpacity="0.6" />
+        <circle cx={Wd / 2} cy="5.25" r="0.9" stroke="#ff7a1a" />
+        <g strokeOpacity="0.25">
+          <rect x={Wd / 2 - 8} y={L - 19} width="16" height="19" />
+          <path d={`M${Wd / 2 - 22} ${L} V ${L - 14} A 23.75 23.75 0 0 1 ${Wd / 2 + 22} ${L - 14} V ${L}`} />
+        </g>
       </g>
-      {COURT_LANDMARKS.map((l) => {
-        const cx = l.court[1] + 25
-        const cy = l.court[0] + 47
-        const on = l.name === active
+      <text x={Wd / 2} y={viewH + 3.6} textAnchor="middle" fontSize="2.8" fill="#7d879c" fontFamily="Inter Variable, sans-serif">
+        {hasFar ? 'far end' : 'camera'}
+      </text>
+      {court.landmarks.map((l) => {
+        const [cx, cy] = toSvg(l.x_ft, l.y_ft)
+        if (cy > viewH + 1) return null
+        const isNext = l.name === next
+        const done = placed.has(l.name)
         return (
           <g key={l.name}>
-            {on && <circle cx={cx} cy={cy} r="3.4" fill="#ff7a1a" opacity="0.3" />}
-            <circle cx={cx} cy={cy} r={on ? 1.8 : 1.3} fill={placed.has(l.name) ? '#34c759' : on ? '#ff7a1a' : '#7d879c'} />
+            {isNext && (
+              <circle cx={cx} cy={cy} r="2" fill="none" stroke="#ff7a1a" strokeWidth="0.8">
+                <animate attributeName="r" values="1.8;4.2;1.8" dur="1.6s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="1;0.2;1" dur="1.6s" repeatCount="indefinite" />
+              </circle>
+            )}
+            <circle cx={cx} cy={cy} r={isNext ? 1.6 : 1.15} fill={done ? '#34c759' : isNext ? '#ff7a1a' : l.filmed_half ? '#a3adc2' : '#56607a'} />
           </g>
         )
       })}
@@ -227,23 +255,75 @@ function MiniCourt({ active, placed }: { active: string | null; placed: Set<stri
   )
 }
 
-export function CourtPointsPicker({ poster, width, height, value, onChange }: { poster: string; width: number; height: number; value: CourtPoint[]; onChange: (pts: CourtPoint[]) => void }) {
+export function CourtPointsPicker({
+  poster,
+  width,
+  height,
+  value,
+  onChange,
+  courts,
+}: {
+  poster: string
+  width: number
+  height: number
+  value: CourtPoint[]
+  onChange: (pts: CourtPoint[]) => void
+  courts?: CourtSpec[]
+}) {
+  const options = courts?.length ? courts : [FALLBACK_COURT]
+  const [courtKey, setCourtKey] = useState(options[0].key)
+  const court = options.find((c) => c.key === courtKey) ?? options[0]
+  // Filmed-half landmarks first: those are the ones a half-court camera can actually see.
+  const landmarks = [...court.landmarks].sort((a, b) => Number(b.filmed_half) - Number(a.filmed_half))
   const placed = new Set(value.map((p) => p.name))
-  const nextUnplaced = COURT_LANDMARKS.find((l) => !placed.has(l.name))?.name ?? null
-  const [active, setActive] = useState<string | null>(nextUnplaced)
+  const firstOpen = landmarks.find((l) => !placed.has(l.name))?.name ?? null
+  const [active, setActive] = useState<string | null>(firstOpen)
+  const current = active && landmarks.some((l) => l.name === active) ? active : firstOpen
+  const currentLabel = landmarks.find((l) => l.name === current)?.label
   const sw = width / 400
-  const current = active ?? nextUnplaced
 
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <MiniCourt active={current} placed={placed} />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm text-fg-2">
-            Pick a spot below, then click exactly where it is in the picture. Use at least <b className="text-fg">4</b> spots you can see clearly. “Left” and “right” are as seen from the camera.
+        <MiniCourt court={court} next={current} placed={placed} />
+        <div className="min-w-0 flex-1 space-y-3">
+          {options.length > 1 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="court-kind" className="text-[0.8rem] font-semibold text-fg-2">
+                Court size
+              </label>
+              <div className="w-48">
+                <Select
+                  id="court-kind"
+                  value={court.key}
+                  onChange={(e) => {
+                    const next = options.find((c) => c.key === e.target.value)
+                    setCourtKey(e.target.value)
+                    if (next) onChange(value.filter((v) => next.landmarks.some((l) => l.name === v.name)))
+                  }}
+                  className="h-9"
+                >
+                  {options.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.label} ({Math.round(c.length_ft)}×{Math.round(c.width_ft)} ft)
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+          )}
+          <p className="text-sm text-fg-2" aria-live="polite">
+            {current ? (
+              <>
+                Next: click <b className="text-fg">{currentLabel}</b> in the picture. It's the pulsing dot on the diagram.
+              </>
+            ) : (
+              <>Every landmark is placed.</>
+            )}{' '}
+            Use at least <b className="text-fg">4</b> you can see clearly. “Left” means the camera's left.
           </p>
-          <div className="mt-2.5 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Court landmark to place">
-            {COURT_LANDMARKS.map((l, i) => {
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Court landmark to place">
+            {landmarks.map((l, i) => {
               const on = l.name === current
               const done = placed.has(l.name)
               return (
@@ -254,12 +334,16 @@ export function CourtPointsPicker({ poster, width, height, value, onChange }: { 
                   aria-checked={on}
                   onClick={() => setActive(l.name)}
                   className={cn(
-                    'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition',
+                    'inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-left text-xs font-semibold transition',
                     on ? 'border-flame-500 bg-flame-500/15 text-fg' : done ? 'border-made/40 bg-made/10 text-fg-2' : 'border-line-strong text-fg-2 hover:border-white/25',
+                    !l.filmed_half && !on && !done && 'opacity-60',
                   )}
                 >
-                  <span className={cn('grid size-4 place-items-center rounded-full text-[0.6rem] text-ink-950', done ? 'bg-made-text' : on ? 'bg-flame-500' : 'bg-fg-3')}>{done ? <Check className="size-2.5" strokeWidth={4} /> : i + 1}</span>
+                  <span className={cn('grid size-4 shrink-0 place-items-center rounded-full text-[0.6rem] text-ink-950', done ? 'bg-made-text' : on ? 'bg-flame-500' : 'bg-fg-3')}>
+                    {done ? <Check className="size-2.5" strokeWidth={4} /> : i + 1}
+                  </span>
                   {l.label}
+                  {!l.filmed_half && <span className="font-normal text-fg-3">(far end)</span>}
                 </button>
               )
             })}
@@ -270,30 +354,18 @@ export function CourtPointsPicker({ poster, width, height, value, onChange }: { 
         poster={poster}
         width={width}
         height={height}
-        label="Court calibration. Click where the selected landmark appears."
+        label={`Court calibration. Click where ${currentLabel ?? 'the selected landmark'} appears.`}
         onPick={(p) => {
           if (!current) return
           const next = [...value.filter((v) => v.name !== current), { name: current, x: p[0], y: p[1] }]
           onChange(next)
-          const after = COURT_LANDMARKS.find((l) => l.name !== current && !next.some((v) => v.name === l.name))
+          const after = landmarks.find((l) => l.name !== current && !next.some((v) => v.name === l.name))
           setActive(after?.name ?? null)
         }}
         overlay={() => (
           <>
-            {value.length >= 2 && (
-              <polyline
-                points={COURT_LANDMARKS.filter((l) => placed.has(l.name))
-                  .map((l) => value.find((v) => v.name === l.name)!)
-                  .map((v) => `${v.x},${v.y}`)
-                  .join(' ')}
-                fill="none"
-                stroke="#34c759"
-                strokeOpacity="0.35"
-                strokeWidth={sw * 0.8}
-              />
-            )}
             {value.map((v) => {
-              const idx = COURT_LANDMARKS.findIndex((l) => l.name === v.name)
+              const idx = landmarks.findIndex((l) => l.name === v.name)
               return (
                 <g key={v.name}>
                   <circle cx={v.x} cy={v.y} r={sw * 4} fill="#070b14" fillOpacity="0.7" stroke="#34c759" strokeWidth={sw} />
@@ -308,7 +380,7 @@ export function CourtPointsPicker({ poster, width, height, value, onChange }: { 
       />
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <p className={cn('font-semibold', value.length >= 4 ? 'text-made-text' : 'text-fg-2')} aria-live="polite">
-          {value.length} of 4+ spots placed{value.length >= 4 ? ', good to go' : ''}
+          {value.length} of 4+ landmarks placed{value.length >= 4 ? ', good to go' : ''}
         </p>
         <div className="flex gap-1">
           {value.length > 0 && (
@@ -323,7 +395,7 @@ export function CourtPointsPicker({ poster, width, height, value, onChange }: { 
               icon={<RotateCcw className="size-3.5" />}
               onClick={() => {
                 onChange([])
-                setActive(COURT_LANDMARKS[0].name)
+                setActive(landmarks[0]?.name ?? null)
               }}
             >
               Clear all

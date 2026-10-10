@@ -94,7 +94,7 @@ function egress(form: FormState, config: AppConfig) {
     keys.push(p.key)
     lines.push(
       p.local
-        ? { who: 'This computer', what: `${p.label} runs locally. Nothing leaves.`, local: true }
+        ? { who: 'This computer', what: `${p.default_model} runs locally. Nothing leaves.`, local: true }
         : { who: p.sends_data_to, what: form.nativeVideo && p.native_video ? 'short video windows and sampled frames' : 'sampled frames from close calls (and the recap)' },
     )
   }
@@ -377,7 +377,7 @@ function ConfigureForm({ config, clip }: { config: AppConfig; clip: ClipView }) 
                       <span className="text-fg-2">
                         {provider.local ? (
                           <>
-                            <b className="text-fg">Runs on this computer.</b> No frames leave.
+                            <b className="text-fg">Runs on this computer</b> ({provider.default_model}). No frames leave, and it's free.
                           </>
                         ) : (
                           <>
@@ -424,7 +424,7 @@ function ConfigureForm({ config, clip }: { config: AppConfig; clip: ClipView }) 
               subtitle="Click 4 or more court landmarks so shots land on a real court map instead of an image-space approximation."
             >
               {showCourt || form.courtPoints.length ? (
-                <CourtPointsPicker poster={clip.urls.poster} width={clip.proxy.width} height={clip.proxy.height} value={form.courtPoints} onChange={(courtPoints) => set({ courtPoints })} />
+                <CourtPointsPicker poster={clip.urls.poster} width={clip.proxy.width} height={clip.proxy.height} value={form.courtPoints} onChange={(courtPoints) => set({ courtPoints })} courts={config.courts} />
               ) : (
                 <Button icon={<Grid2x2 className="size-4" />} onClick={() => setShowCourt(true)}>
                   Place court landmarks

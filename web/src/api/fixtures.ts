@@ -6,6 +6,7 @@
 import type {
   AppConfig,
   ClipMeta,
+  CourtSpec,
   DecisionRecord,
   EventStatus,
   EventType,
@@ -70,6 +71,33 @@ export function mockPosterSvg(variant: 'gym' | 'driveway' = 'gym'): string {
 
 // ------------------------------------------------------------------ config
 
+/** Landmarks in the /api/config convention: feet from center court, x toward the filmed basket, +y camera-left. */
+function court(key: string, label: string, L: number, Wd: number, lane: number, ft: number): CourtSpec {
+  const b = L / 2
+  const w = Wd / 2
+  const l = lane / 2
+  const lm = (name: string, lbl: string, x: number, y: number, filmed = true) => ({ name, label: lbl, x_ft: x, y_ft: y, filmed_half: filmed })
+  return {
+    key,
+    label,
+    length_ft: L,
+    width_ft: Wd,
+    landmarks: [
+      lm('baseline_left_corner', 'Baseline left corner', b, w),
+      lm('baseline_right_corner', 'Baseline right corner', b, -w),
+      lm('lane_left_baseline', 'Paint, left edge at the baseline', b, l),
+      lm('lane_right_baseline', 'Paint, right edge at the baseline', b, -l),
+      lm('free_throw_left', 'Free-throw line, left end', b - ft, l),
+      lm('free_throw_right', 'Free-throw line, right end', b - ft, -l),
+      lm('halfcourt_left', 'Half-court line, left sideline', 0, w),
+      lm('halfcourt_right', 'Half-court line, right sideline', 0, -w),
+      lm('center_court', 'Center of the center circle', 0, 0),
+      lm('other_baseline_left_corner', 'Far baseline, left corner', -b, w, false),
+      lm('other_baseline_right_corner', 'Far baseline, right corner', -b, -w, false),
+    ],
+  }
+}
+
 export const mockConfig: AppConfig = {
   version: '0.1.0-mock',
   providers: [
@@ -100,8 +128,8 @@ export const mockConfig: AppConfig = {
     {
       key: 'openai',
       label: 'OpenAI',
-      available: true,
-      reason: null,
+      available: false,
+      reason: 'OpenAI account is out of credits (add billing at platform.openai.com)',
       native_video: false,
       audio: false,
       local: false,
@@ -130,8 +158,8 @@ export const mockConfig: AppConfig = {
       audio: false,
       local: true,
       sends_data_to: 'nobody (runs on this Mac)',
-      default_model: 'qwen3.5:4b',
-      models: ['qwen3.5:4b', 'qwen3.5:9b'],
+      default_model: 'gemma4:latest',
+      models: ['gemma4:latest', 'qwen3.5:4b'],
     },
   ],
   detectors: [
@@ -169,6 +197,7 @@ export const mockConfig: AppConfig = {
     { key: 'court_map', label: 'Court map / heatmap' },
   ],
   footage_types: ['unknown', 'broadcast', 'fixed_camera', 'handheld', 'highlights', 'practice'],
+  courts: [court('nba', 'NBA', 94, 50, 16, 19), court('ncaa', 'NCAA', 94, 50, 12, 19), court('fiba', 'FIBA', 91.86, 49.21, 16.08, 19.03), court('hs', 'High school', 84, 50, 12, 19)],
   caps: { run_cost_cap_usd: 0.5, session_cost_cap_usd: 5, max_upload_mb: 500, max_clip_seconds: 600 },
   spend: { session_usd: 0.42 },
 }
