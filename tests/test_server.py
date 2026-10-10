@@ -243,3 +243,13 @@ def test_billing_problem_messages():
     assert msg and "out of credits" in msg and "console.anthropic.com" in msg
     assert billing_problem("openai", "429 insufficient_quota") is not None
     assert billing_problem("openai", "500 internal server error") is None
+
+
+def test_failed_and_interrupted_runs_are_marked(data_dir):
+    store = Store(data_dir)
+    stuck = AnalysisRun(run_id=Store.new_run_id(), clip=_clip(), status="running")
+    store.save_run(stuck)
+    with TestClient(create_app(store)) as c:
+        view = c.get(f"/api/runs/{stuck.run_id}").json()
+        assert view["status"] == "failed" and "Interrupted" in view["error"] and view["job_id"] is None
+        assert "defaults" in c.get("/api/config").json()

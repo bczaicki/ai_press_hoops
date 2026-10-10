@@ -32,7 +32,7 @@ from hoops.config import OUTPUTS, PROFILES, ROOT, get_settings
 from hoops.cost import CostCapExceeded, SessionLedger
 from hoops.decide.base import PRESETS
 from hoops.health import billing_problem, probe_billing
-from hoops.jobs import JobContext, JobManager
+from hoops.jobs import Cancelled, JobContext, JobManager, _friendly
 from hoops.pipeline import RunRequest, estimate, run_analysis, stages_for
 from hoops.schemas import AnalysisRun, ClipMeta, Event, EventType, Narrative, Provenance, ShotInfo
 from hoops.store import Store
@@ -111,6 +111,7 @@ def create_app(store: Store | None = None) -> FastAPI:
     app.state.rim_lock = threading.Lock()
     registry.load_plugins()
     threading.Thread(target=_health_checks, args=(app,), daemon=True).start()
+    _mark_interrupted_runs(app.state.store)
 
     def st() -> Store:
         return app.state.store
@@ -267,6 +268,13 @@ def create_app(store: Store | None = None) -> FastAPI:
             "outputs": [{"key": k, "label": OUTPUT_LABELS[k]} for k in OUTPUTS],
             "footage_types": FOOTAGE_TYPES,
             "courts": _courts(),
+            "defaults": {
+                "detector": settings.default_detector,
+                "tracker": settings.default_tracker,
+                "decider": settings.default_decider,
+                "provider": next((p["key"] for p in providers if p["available"] and not p["local"]), None)
+                or next((p["key"] for p in providers if p["available"]), None),
+            },
             "caps": {
                 "run_cost_cap_usd": settings.run_cost_cap_usd,
                 "session_cost_cap_usd": settings.session_cost_cap_usd,
@@ -483,7 +491,10 @@ def create_app(store: Store | None = None) -> FastAPI:
             "poster": f"/media/clips/{run.clip.clip_id}/poster.jpg",
             "download": f"/api/runs/{run.run_id}/download",
         }
-        return {**run.model_dump(mode="json"), "urls": urls}
+        live = next(
+            (j for j in app.state.jobs.jobs.values() if j.run_id == run.run_id and not j.terminal), None
+        )
+        return {**run.model_dump(mode="json"), "urls": urls, "job_id": live.job_id if live else None}
 
     def load_run(run_id: str) -> AnalysisRun:
         if not re.fullmatch(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{4}", run_id):
@@ -534,6 +545,12 @@ def create_app(store: Store | None = None) -> FastAPI:
         def work(ctx: JobContext) -> None:
             try:
                 run = run_analysis(req, ctx, st(), run_id=run_id, guard=ledger.run_guard(run_cap))
+            except Cancelled:
+                _mark_run(st(), run_id, "cancelled", None)
+                raise
+            except Exception as exc:
+                _mark_run(st(), run_id, "failed", _friendly(exc))
+                raise
             finally:
                 ledger.release(est.estimate_usd)
             for call in run.vlm_calls:
@@ -583,6 +600,10 @@ def create_app(store: Store | None = None) -> FastAPI:
             r = load_run(run_id)
             r.events = do_recompute(r.events, preset)
             r.team_summaries = compute_stats(r.events, r.teams)
+            for stage in r.pipeline:
+                if stage.stage == "decide":
+                    stage.params["preset"] = preset.name
+            _refresh_captions(st(), r)
             st().save_run(r)
         return {
             "events": [e.model_dump(mode="json") for e in r.events],
@@ -601,6 +622,7 @@ def create_app(store: Store | None = None) -> FastAPI:
             if body.note:
                 ev.description = body.note
             _refresh_stats(r)
+            _refresh_captions(st(), r)
             st().save_run(r)
             return ev.model_dump(mode="json")
 
@@ -629,6 +651,7 @@ def create_app(store: Store | None = None) -> FastAPI:
         r.events.append(ev)
         r.events.sort(key=lambda e: e.t_key_s or e.t_start_s)
         _refresh_stats(r)
+        _refresh_captions(st(), r)
         st().save_run(r)
         return ev.model_dump(mode="json")
 
@@ -824,6 +847,37 @@ def _sweep_stale_uploads(uploads_dir: Path) -> None:
                 shutil.rmtree(d, ignore_errors=True)
         except OSError as exc:
             log.info("couldn't sweep %s: %s", d, exc)
+
+
+def _mark_run(store: Store, run_id: str, status: str, error: str | None) -> None:
+    try:
+        r = store.load_run(run_id)
+    except FileNotFoundError:
+        return
+    r.status, r.error = status, error  # type: ignore[assignment]
+    store.save_run(r)
+
+
+def _mark_interrupted_runs(store: Store) -> None:
+    """Runs left 'running' by a previous server process will never finish: say so."""
+    for p in store.runs_dir.glob("*/run.json") if store.runs_dir.exists() else []:
+        try:
+            r = AnalysisRun.model_validate_json(p.read_text())
+        except Exception as exc:  # noqa: BLE001
+            log.warning("skipping unreadable run %s: %s", p.parent.name, exc)
+            continue
+        if r.status == "running":
+            r.status, r.error = "failed", "Interrupted: the server stopped before this run finished."
+            store.save_run(r)
+
+
+def _refresh_captions(store: Store, run: AnalysisRun) -> None:
+    try:
+        from hoops.captions import write_vtt
+
+        run.captions_path = store.rel(write_vtt(run.events, store.run_dir(run.run_id) / "events.vtt"))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("captions refresh failed: %s", exc)
 
 
 def _refresh_stats(run: AnalysisRun) -> None:

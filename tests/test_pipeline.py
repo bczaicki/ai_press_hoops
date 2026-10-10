@@ -47,13 +47,31 @@ class FakeVLM:
         self.calls.append(req.purpose)
         parsed = None
         if req.output_model is WindowVerdict:
-            parsed = WindowVerdict(verdict="made", shot_kind="jumper", confidence=0.9, evidence_tiles=["W1#3"],
-                                   shooter_description="white jersey", reason="ball drops through the net")
+            parsed = WindowVerdict(
+                verdict="made",
+                shot_kind="jumper",
+                confidence=0.9,
+                evidence_tiles=["W1#3"],
+                shooter_description="white jersey",
+                reason="ball drops through the net",
+            )
         elif req.output_model is ClipSummary:
-            parsed = ClipSummary(headline="One jumper, one make", narrative="A clean jump shot goes in.",
-                                 key_moments=[KeyMoment(ref="0:01.6", description="make")], caveats=[])
-        return AnalyzeResult(text=parsed.model_dump_json() if parsed else "ok", parsed=parsed, usage=Usage(10, 5),
-                             cost_usd=0.001, latency_ms=5.0, model_id="fake-1", provider="fake", raw={"ok": True})
+            parsed = ClipSummary(
+                headline="One jumper, one make",
+                narrative="A clean jump shot goes in.",
+                key_moments=[KeyMoment(ref="0:01.6", description="make")],
+                caveats=[],
+            )
+        return AnalyzeResult(
+            text=parsed.model_dump_json() if parsed else "ok",
+            parsed=parsed,
+            usage=Usage(10, 5),
+            cost_usd=0.001,
+            latency_ms=5.0,
+            model_id="fake-1",
+            provider="fake",
+            raw={"ok": True},
+        )
 
     def list_models(self):
         return ["fake-1"]
@@ -67,12 +85,24 @@ def fake_world(data_dir, monkeypatch, tmp_path):
     from hoops.perception.detectors import ScriptedDetector
 
     registry.load_plugins()
-    registry.detectors.register("fake:shot", label="scripted shot")(lambda conf=0.35: ScriptedDetector(_script))
+    registry.detectors.register("fake:shot", label="scripted shot")(
+        lambda conf=0.35: ScriptedDetector(_script)
+    )
     vlm = FakeVLM()
     registry.vlms.register("fake", label="fake")(lambda: vlm)
-    monkeypatch.setitem(config.PROFILES, "fake", ProviderProfile(
-        key="fake", label="Fake", kind="openai_compat", default_model="fake-1", key_field=None,
-        sends_data_to="nobody (test)", local=True))
+    monkeypatch.setitem(
+        config.PROFILES,
+        "fake",
+        ProviderProfile(
+            key="fake",
+            label="Fake",
+            kind="openai_compat",
+            default_model="fake-1",
+            key_field=None,
+            sends_data_to="nobody (test)",
+            local=True,
+        ),
+    )
     store = Store(data_dir)
     clip_id = "feedfacecafebeef"
     d = store.clip_dir(clip_id)
@@ -81,12 +111,25 @@ def fake_world(data_dir, monkeypatch, tmp_path):
     make_video(tmp_path / "unused.mp4", duration=0.2)
 
     def asset(name: str) -> VideoAsset:
-        return VideoAsset(path=f"clips/{clip_id}/{name}", width=1280, height=720, fps="30", fps_float=30.0,
-                          n_frames=90, duration_s=3.0, has_audio=name == "master.mp4")
+        return VideoAsset(
+            path=f"clips/{clip_id}/{name}",
+            width=1280,
+            height=720,
+            fps="30",
+            fps_float=30.0,
+            n_frames=90,
+            duration_s=3.0,
+            has_audio=name == "master.mp4",
+        )
 
-    clip = ClipMeta(clip_id=clip_id, source_size_bytes=1, master=asset("master.mp4"),
-                    proxy=asset("proxy_720p.mp4"), normalization=NormalizationReport(summary="test"),
-                    footage_type="fixed_camera")
+    clip = ClipMeta(
+        clip_id=clip_id,
+        source_size_bytes=1,
+        master=asset("master.mp4"),
+        proxy=asset("proxy_720p.mp4"),
+        normalization=NormalizationReport(summary="test"),
+        footage_type="fixed_camera",
+    )
     store.save_clip(clip)
     return store, clip, vlm
 
@@ -94,10 +137,26 @@ def fake_world(data_dir, monkeypatch, tmp_path):
 @requires_ffmpeg
 def test_full_run_with_fakes(fake_world):
     store, clip, vlm = fake_world
-    req = RunRequest(clip_id=clip.clip_id, outputs=["annotated_video", "events", "summary", "court_map"],
-                     detector="fake:shot", tracker="bytetrack", decider="rules", rim_box=list(RIM),
-                     vlm=VLMChoice(provider="fake"), egress_ok=["fake"])
-    assert stages_for(req) == ["detect", "track", "shots", "decide", "adjudicate", "summarize", "court", "render"]
+    req = RunRequest(
+        clip_id=clip.clip_id,
+        outputs=["annotated_video", "events", "summary", "court_map"],
+        detector="fake:shot",
+        tracker="bytetrack",
+        decider="rules",
+        rim_box=list(RIM),
+        vlm=VLMChoice(provider="fake"),
+        egress_ok=["fake"],
+    )
+    assert stages_for(req) == [
+        "detect",
+        "track",
+        "shots",
+        "decide",
+        "adjudicate",
+        "summarize",
+        "court",
+        "render",
+    ]
     run = run_analysis(req, None, store)
     assert run.status == "done"
     shots = [e for e in run.events if e.shot is not None]
@@ -112,12 +171,24 @@ def test_full_run_with_fakes(fake_world):
 def test_estimate_and_stages_without_vlm(data_dir):
     store = Store(data_dir)
     d = store.clip_dir("abcdefabcdefabcd")
-    asset = VideoAsset(path=f"clips/abcdefabcdefabcd/master.mp4", width=1280, height=720, fps="30", fps_float=30.0,
-                       n_frames=900, duration_s=30.0)
-    clip = ClipMeta(clip_id="abcdefabcdefabcd", source_size_bytes=1, master=asset, proxy=asset,
-                    normalization=NormalizationReport())
+    asset = VideoAsset(
+        path="clips/abcdefabcdefabcd/master.mp4",
+        width=1280,
+        height=720,
+        fps="30",
+        fps_float=30.0,
+        n_frames=900,
+        duration_s=30.0,
+    )
+    clip = ClipMeta(
+        clip_id="abcdefabcdefabcd",
+        source_size_bytes=1,
+        master=asset,
+        proxy=asset,
+        normalization=NormalizationReport(),
+    )
     del d
     req = RunRequest(clip_id=clip.clip_id, outputs=["summary"])
-    assert stages_for(req) == []
+    assert stages_for(req) == ["summarize"]  # shown (and skipped) so the stepper keeps its order
     est = estimate(req, clip)
     assert est.estimate_usd == 0.0

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any, Literal
@@ -91,8 +92,8 @@ def stages_for(req: RunRequest) -> list[str]:
         stages += ["detect", "track", "shots", "decide"]
         if req.vlm:
             stages.append("adjudicate")
-    if "summary" in req.outputs and req.vlm:
-        stages.append("summarize")
+    if "summary" in req.outputs:
+        stages.append("summarize")  # skipped (in place) when no AI provider was chosen
     if "court_map" in req.outputs:
         stages.append("court")
     if "annotated_video" in req.outputs:
@@ -426,9 +427,7 @@ def run_analysis(
             if body:
                 run.narratives.append(
                     Narrative(
-                        kind=req.prompt_preset
-                        if req.prompt_preset in ("recap", "play_by_play", "coaching")
-                        else "custom",
+                        kind=NARRATIVE_KINDS.get(req.prompt_preset, "custom"),
                         text=body,
                         provenance=Provenance(
                             source="vlm",
@@ -438,6 +437,7 @@ def run_analysis(
                             params={
                                 "structured": req.structured,
                                 "summary": summary.model_dump() if summary else None,
+                                "key_moments": moments_with_times(summary) if summary else [],
                             },
                         ),
                     )
@@ -499,6 +499,30 @@ def run_analysis(
     run.status = "done"
     store.save_run(run)
     return run
+
+
+NARRATIVE_KINDS = {
+    "recap": "recap",
+    "play_by_play": "play_by_play",
+    "coach": "coaching",
+    "coaching": "coaching",
+}
+CLOCK_RE = re.compile(r"(\d+):(\d{2}(?:\.\d+)?)")
+
+
+def moments_with_times(summary: Any) -> list[dict]:
+    """Key moments as dicts with t_s parsed from refs like 'S2#4 @ 00:12.40' or '0:12'."""
+    out = []
+    for km in getattr(summary, "key_moments", []) or []:
+        m = CLOCK_RE.search(km.ref or "")
+        out.append(
+            {
+                "ref": km.ref,
+                "description": km.description,
+                "t_s": int(m.group(1)) * 60 + float(m.group(2)) if m else None,
+            }
+        )
+    return out
 
 
 def guard_check(guard: Any, amount: float) -> None:

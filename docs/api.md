@@ -141,8 +141,14 @@ Field notes:
 ```json
 {"urls": {"annotated": "/media/runs/<id>/annotated.mp4" | null, "master": "...", "proxy": "...",
           "captions": "/media/runs/<id>/events.vtt" | null, "court_maps": ["/media/runs/<id>/charts/shot_chart.png"],
-          "download": "/api/runs/<id>/download"}}
+          "poster": "/media/clips/<clip_id>/poster.jpg", "download": "/api/runs/<id>/download"},
+ "job_id": "j_ab12" | null}
 ```
+- `job_id` is the live job for this run while it is still queued or running.
+- `status` becomes `failed` or `cancelled` (with `error`) when a run doesn't finish. Runs interrupted by a server restart are marked failed at startup.
+- Captions are regenerated after review, add-event and recompute.
+- AI summaries keep their structured form in `narratives[].provenance.params.summary`, and `params.key_moments` lists `{ref, description, t_s}`.
+- `GET /api/config` also returns `"defaults": {"detector", "tracker", "decider", "provider"}`, where provider is the first working cloud provider, else local.
 
 `Answer`:
 ```json
