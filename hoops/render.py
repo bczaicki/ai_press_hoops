@@ -149,7 +149,10 @@ def render_annotated(
         if (lab := flash_label(ev))
     ]
     fixed_rim = tuple(float(v) for v in rim_box) if rim_box is not None else None
-    banner_y = height - 70 if fixed_rim and fixed_rim[3] < height * 0.35 else 16
+    rim_rows = df[df["cls"] == "rim"] if len(df) else df
+    rim_bottom = fixed_rim[3] if fixed_rim else (float(rim_rows["y2"].median()) if len(rim_rows) else None)
+    # The flash goes at the top unless the rim is up there (keep the rim/net readable).
+    banner_y = height - 70 if rim_bottom is not None and rim_bottom < 110 else 16
 
     target = out_path if master_audio is None else out_path.with_name(out_path.stem + ".video.mp4")
     with VideoWriter(target, width, height, rate) as writer:
