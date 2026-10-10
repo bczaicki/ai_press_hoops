@@ -16,12 +16,12 @@ RIM = (600.0, 200.0, 660.0, 222.0)
 
 
 def _ball_at(t: float) -> tuple[float, float] | None:
-    """A jump shot: rises from (300, 500) to an apex above the rim, drops through it at t~1.6 s."""
-    if not 0.4 <= t <= 2.2:
+    """A jump shot: rises from (300, 500), peaks ~32 px above the rim, drops through it at t=1.6 s."""
+    if not 0.4 <= t <= 2.1:
         return None
-    u = (t - 0.4) / 1.2  # 0 at release, 1 at the rim
-    x = 300 + (630 - 300) * u
-    y = 500 - 700 * u + 410 * u * u  # apex above the rim, then down through y~211 at u=1
+    u = (t - 0.4) / 1.2  # 0 at release, 1 at the rim plane
+    x = 300 + (630 - 300) * min(u, 1.0)  # straight down once through the hoop
+    y = 500 - 900 * u + 610 * u * u  # apex y~168 (rim top 200), y=210 at the rim, below it after
     return x, y
 
 
