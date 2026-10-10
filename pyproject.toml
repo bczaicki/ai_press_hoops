@@ -80,3 +80,8 @@ markers = [
     "slow: needs model weights or network",
     "live: calls a paid API (opt-in with HOOPS_LIVE=1)",
 ]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
