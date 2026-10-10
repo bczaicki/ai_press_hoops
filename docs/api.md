@@ -36,11 +36,16 @@ If `HOOPS_APP_PASSWORD` is set, every `/api/*` and `/media/*` route requires the
   "outputs": [{"key": "annotated_video", "label": "Annotated video"}, {"key": "events", "label": "Event log + stats"},
               {"key": "summary", "label": "AI summary & Q&A"}, {"key": "court_map", "label": "Court map / heatmap"}],
   "footage_types": ["unknown", "broadcast", "fixed_camera", "handheld", "highlights", "practice"],
+  "courts": [{"key": "nba", "label": "NBA", "length_ft": 94, "width_ft": 50,
+              "landmarks": [{"name": "baseline_left_corner", "label": "Baseline left corner", "x_ft": 47.0, "y_ft": 25.0,
+                             "filmed_half": true}]}],
   "caps": {"run_cost_cap_usd": 0.5, "session_cost_cap_usd": 5.0, "max_upload_mb": 500, "max_clip_seconds": 600},
   "spend": {"session_usd": 0.0}
 }
 ```
 Unavailable items still appear, with `available: false` and a human `reason` such as "missing GEMINI_API_KEY in .env". Show them disabled, with the reason as a tooltip.
+
+`courts[].landmarks` are the only valid `court_points[].name` values. Coordinates are in feet with the origin at center court; `x` runs along the length toward the filmed basket and `y` across the width. "Left" means camera-left for a camera at half court facing the filmed basket. Landmarks on the other half are prefixed `other_`.
 
 ## Uploads (chunked, so tunnels with 100 MB body caps still work)
 | Method | Path | Body | Response |

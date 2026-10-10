@@ -162,3 +162,14 @@ def test_job_manager_progress_and_cancel():
             break
         time.sleep(0.01)
     assert job2.status == "cancelled"
+
+
+def test_billing_problem_messages():
+    from hoops.server import billing_problem
+
+    msg = billing_problem(
+        "claude", "Error code: 400 - Your credit balance is too low to access the Anthropic API"
+    )
+    assert msg and "out of credits" in msg and "console.anthropic.com" in msg
+    assert billing_problem("openai", "429 insufficient_quota") is not None
+    assert billing_problem("openai", "500 internal server error") is None

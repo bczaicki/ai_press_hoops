@@ -100,8 +100,11 @@ def create_app(store: Store | None = None) -> FastAPI:
     app.state.secret = secrets.token_bytes(32)
     app.state.spend = 0.0
     app.state.models_cache = {}
+    app.state.default_models = {}
+    app.state.provider_health = {}  # provider key -> human reason it can't be used right now
     app.state.login_failures = {}
     registry.load_plugins()
+    threading.Thread(target=_health_checks, args=(app,), daemon=True).start()
 
     def st() -> Store:
         return app.state.store
@@ -201,6 +204,8 @@ def create_app(store: Store | None = None) -> FastAPI:
         for key, prof in PROFILES.items():
             entry = vlm_entries.get(key)
             reason = entry.unavailable_reason() if entry else "adapter not installed"
+            reason = reason or app.state.provider_health.get(key)
+            default = app.state.default_models.get(key, prof.default_model)
             providers.append(
                 {
                     "key": key,
@@ -211,10 +216,8 @@ def create_app(store: Store | None = None) -> FastAPI:
                     "audio": prof.audio,
                     "local": prof.local,
                     "sends_data_to": prof.sends_data_to,
-                    "default_model": prof.default_model,
-                    "models": provider_models(key, prof.default_model)
-                    if reason is None
-                    else [prof.default_model],
+                    "default_model": default,
+                    "models": provider_models(key, default) if reason is None else [default],
                 }
             )
         try:
@@ -246,6 +249,7 @@ def create_app(store: Store | None = None) -> FastAPI:
             "prompt_presets": prompt_presets,
             "outputs": [{"key": k, "label": OUTPUT_LABELS[k]} for k in OUTPUTS],
             "footage_types": FOOTAGE_TYPES,
+            "courts": _courts(),
             "caps": {
                 "run_cost_cap_usd": settings.run_cost_cap_usd,
                 "session_cost_cap_usd": settings.session_cost_cap_usd,
@@ -453,6 +457,9 @@ def create_app(store: Store | None = None) -> FastAPI:
         def work(ctx: JobContext) -> None:
             run = run_analysis(req, ctx, st(), run_id=run_id)
             app.state.spend += run.metrics.cost_usd
+            for call in run.vlm_calls:
+                if call.error and (why := billing_problem(call.provider, call.error)):
+                    app.state.provider_health[call.provider] = why
 
         job = app.state.jobs.submit(
             "analyze", work, stages=stages_for(req), clip_id=req.clip_id, run_id=run_id
@@ -626,6 +633,37 @@ def create_app(store: Store | None = None) -> FastAPI:
     return app
 
 
+def _courts() -> list[dict]:
+    """Court specs + calibration landmark names (the UI's point picker must use these exact names)."""
+    try:
+        from hoops.perception.court import COURTS, landmarks
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for key, spec in COURTS.items():
+        marks = [
+            {
+                "name": name,
+                "label": name.replace("_", " ").capitalize(),
+                "x_ft": x,
+                "y_ft": y,
+                "filmed_half": not name.startswith("other_"),
+            }
+            for name, (x, y) in landmarks(key).items()
+            if name != "rim"
+        ]
+        out.append(
+            {
+                "key": key,
+                "label": spec.label,
+                "length_ft": spec.length_ft,
+                "width_ft": spec.width_ft,
+                "landmarks": marks,
+            }
+        )
+    return out
+
+
 def _refresh_stats(run: AnalysisRun) -> None:
     try:
         from hoops.events.stats import compute_stats
@@ -668,6 +706,55 @@ def _agreement(a: AnalysisRun, b: AnalysisRun, tol_s: float = 1.0) -> dict:
         "only_b": len(eb) - len(pairs),
         "outcome_agreement": round(sum(agree) / len(agree), 3) if agree else None,
     }
+
+
+BILLING_PATTERNS = (
+    "credit balance",
+    "insufficient_quota",
+    "no credits",
+    "credit_balance",
+    "billing",
+    "quota",
+)
+CONSOLES = {
+    "claude": "console.anthropic.com",
+    "openai": "platform.openai.com",
+    "gemini": "aistudio.google.com",
+    "openrouter": "openrouter.ai",
+}
+
+
+def billing_problem(provider: str, error: str) -> str | None:
+    """A friendly reason when a provider error means 'out of credits / no billing', else None."""
+    if any(p in error.lower() for p in BILLING_PATTERNS):
+        where = CONSOLES.get(provider, "the provider's console")
+        return f"{PROFILES[provider].label} account is out of credits (add billing at {where})"
+    return None
+
+
+def _health_checks(app: FastAPI) -> None:
+    """Free startup checks: Anthropic token counting reports an empty balance; Ollama's installed models."""
+    settings = get_settings()
+    if settings.key("anthropic_api_key"):
+        try:
+            import anthropic
+
+            anthropic.Anthropic(
+                api_key=settings.key("anthropic_api_key"), max_retries=0
+            ).messages.count_tokens(
+                model=PROFILES["claude"].default_model, messages=[{"role": "user", "content": "hi"}]
+            )
+        except Exception as exc:  # noqa: BLE001
+            if why := billing_problem("claude", str(exc)):
+                app.state.provider_health["claude"] = why
+    try:
+        vlm = registry.vlms.create("ollama")
+        resolved = vlm.resolve_model(vlm.model, explicit=False)
+        app.state.default_models["ollama"] = resolved
+        if not vlm._installed:
+            app.state.provider_health["ollama"] = "Ollama isn't running (start the Ollama app)"
+    except Exception as exc:  # noqa: BLE001
+        log.info("ollama health check skipped: %s", exc)
 
 
 def _fetch_models(app: FastAPI, key: str, default: str) -> None:
