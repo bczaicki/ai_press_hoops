@@ -14,9 +14,12 @@ from pathlib import Path
 from typing import Self
 
 import av
+import av.logging
 import numpy as np
 
 from hoops.config import get_settings
+
+av.logging.set_level(av.logging.ERROR)  # keep libx264's per-file statistics out of the console
 
 
 class VideoWriter:
