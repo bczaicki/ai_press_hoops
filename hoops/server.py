@@ -33,7 +33,7 @@ from hoops.cost import CostCapExceeded, SessionLedger
 from hoops.decide.base import PRESETS
 from hoops.health import billing_problem, probe_billing
 from hoops.jobs import Cancelled, JobContext, JobManager, _friendly
-from hoops.pipeline import RunRequest, estimate, run_analysis, stages_for
+from hoops.pipeline import DECIDER_PROVIDERS, RunRequest, estimate, run_analysis, stages_for
 from hoops.schemas import AnalysisRun, ClipMeta, Event, EventType, Narrative, Provenance, ShotInfo
 from hoops.store import Store
 
@@ -207,6 +207,15 @@ def create_app(store: Store | None = None) -> FastAPI:
             **extra,
         }
 
+    def decider_view(e: registry.Entry) -> dict:
+        """Deciders backed by a hosted provider inherit that provider's live health (e.g. out of credits)."""
+        view = entry_view(e, supports_images=bool(e.extra.get("supports_images")))
+        provider = DECIDER_PROVIDERS.get(e.key)
+        why = app.state.provider_health.get(provider) if provider else None
+        if view["available"] and why:
+            view["available"], view["reason"] = False, why
+        return view
+
     def provider_models(key: str, default: str) -> list[str]:
         cached = app.state.models_cache.get(key)
         if cached is None:
@@ -256,10 +265,7 @@ def create_app(store: Store | None = None) -> FastAPI:
                 entry_view(e) for e in registry.detectors.entries() if not e.key.startswith("fake:")
             ],
             "trackers": [entry_view(e) for e in registry.trackers.entries()],
-            "deciders": [
-                entry_view(e, supports_images=bool(e.extra.get("supports_images")))
-                for e in registry.deciders.entries()
-            ],
+            "deciders": [decider_view(e) for e in registry.deciders.entries()],
             "threshold_presets": [
                 {"key": k, "label": k.title(), "accept": p.accept, "reject": p.reject, "note": p.note}
                 for k, p in PRESETS.items()

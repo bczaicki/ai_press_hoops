@@ -132,7 +132,7 @@ PROFILES: dict[str, ProviderProfile] = {
     ),
     "ollama": ProviderProfile(
         key="ollama",
-        label="Local (Ollama Qwen3.5)",
+        label="Local (Ollama)",
         kind="ollama",
         default_model="qwen3.5:4b",
         key_field=None,
