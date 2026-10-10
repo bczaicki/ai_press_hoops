@@ -17,10 +17,10 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { api, ApiError, errorMessage } from '../api'
-import type { AppConfig, ClipView, CourtPoint, Effort, Estimate, FootageType, OutputKind, RunRequest } from '../api/types'
+import type { AppConfig, ClipView, CourtPoint, Effort, Estimate, FootageType, OutputKind, RimSuggestion, RunRequest } from '../api/types'
 import { useConfig } from '../components/ConfigContext'
 import { DeciderList, OutputCards, ProviderCards, ThresholdControl } from '../components/Pickers'
-import { CourtPointsPicker, RimPicker, type Box } from '../components/PosterPickers'
+import { CourtPointsPicker, RimPicker, RimSuggestionPicker, type Box } from '../components/PosterPickers'
 import { Poster } from '../components/Poster'
 import { Button, ButtonLink } from '../components/ui/button'
 import { Badge, Card, ErrorPanel, Field, inputClass, Meter, Select, Skeleton } from '../components/ui/misc'
@@ -200,7 +200,19 @@ function ConfigureForm({ config, clip }: { config: AppConfig; clip: ClipView }) 
   const [form, setForm] = useState<FormState>(() => defaults(config))
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }))
   const [advanced, setAdvanced] = useState(false)
-  const [showRim, setShowRim] = useState(false)
+  const [drawRim, setDrawRim] = useState(false)
+  const [rims, setRims] = useState<{ loading: boolean; error: string | null; data: RimSuggestion[] | null }>({ loading: true, error: null, data: null })
+  // Start the (slow, cached-per-clip) rim finder right away so it's ready by the time the user scrolls there.
+  useEffect(() => {
+    const ac = new AbortController()
+    api.rimSuggestions(clip.clip_id, ac.signal).then(
+      (data) => setRims({ loading: false, error: null, data }),
+      (err) => {
+        if (!ac.signal.aborted) setRims({ loading: false, error: errorMessage(err), data: null })
+      },
+    )
+    return () => ac.abort()
+  }, [clip.clip_id])
   const [showCourt, setShowCourt] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -403,16 +415,21 @@ function ConfigureForm({ config, clip }: { config: AppConfig; clip: ClipView }) 
 
           <Step
             n={5}
-            title="Mark the rim"
+            title="Which hoop?"
             badge={<Badge tone={needsRim ? 'flame' : 'muted'}>{needsRim ? 'Recommended' : 'Optional'}</Badge>}
-            subtitle={needsRim ? 'The selected detector has no rim class, so showing it where the rim is makes shot calls much better.' : 'The detector can find rims itself, but marking it helps on tricky footage.'}
+            subtitle="Tap the hoop being played at. If you skip this, the analysis picks the hoop the ball goes toward and notes it in the results."
           >
-            {showRim || form.rimBox ? (
-              <RimPicker poster={clip.urls.poster} width={clip.proxy.width} height={clip.proxy.height} value={form.rimBox} onChange={(rimBox) => set({ rimBox })} />
+            {drawRim ? (
+              <div className="space-y-2">
+                <RimPicker poster={clip.urls.poster} width={clip.proxy.width} height={clip.proxy.height} value={form.rimBox} onChange={(rimBox) => set({ rimBox })} />
+                {(rims.data?.length ?? 0) > 0 && (
+                  <Button size="sm" variant="ghost" icon={<Crosshair className="size-3.5" />} onClick={() => setDrawRim(false)}>
+                    Back to the suggested hoops
+                  </Button>
+                )}
+              </div>
             ) : (
-              <Button icon={<Crosshair className="size-4" />} onClick={() => setShowRim(true)}>
-                Mark the rim on the poster
-              </Button>
+              <RimSuggestionPicker poster={clip.urls.poster} width={clip.proxy.width} height={clip.proxy.height} state={rims} value={form.rimBox} onChange={(rimBox) => set({ rimBox })} onDraw={() => setDrawRim(true)} />
             )}
           </Step>
 

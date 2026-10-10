@@ -1,10 +1,9 @@
 import { Check, Crosshair, RotateCcw, Undo2 } from 'lucide-react'
 import { useRef, useState, type PointerEvent, type ReactNode } from 'react'
 
-import type { CourtPoint, CourtSpec } from '../api/types'
+import type { CourtPoint, CourtSpec, RimSuggestion } from '../api/types'
 import { cn } from '../lib/format'
 import { Button } from './ui/button'
-import { Select } from './ui/misc'
 
 export type Box = [number, number, number, number]
 type Pt = [number, number]
@@ -188,6 +187,155 @@ export function RimPicker({ poster, width, height, value, onChange }: { poster: 
   )
 }
 
+// ------------------------------------------------------------------ rim suggestions
+
+/** A zoomed crop of the poster around one suggested hoop, so a small rim is easy to recognize and tap. */
+function HoopCrop({ poster, width, height, box }: { poster: string; width: number; height: number; box: RimSuggestion['box'] }) {
+  const TW = 168
+  const TH = 96
+  const bw = box[2] - box[0]
+  const bh = box[3] - box[1]
+  // Crop ~3.2x the box, at the thumbnail's aspect ratio, clamped to the frame.
+  let cw = Math.max(bw * 3.2, bh * 3.2 * (TW / TH), 90)
+  let ch = cw * (TH / TW)
+  cw = Math.min(cw, width)
+  ch = Math.min(ch, height)
+  const cx = Math.min(Math.max(0, (box[0] + box[2]) / 2 - cw / 2), width - cw)
+  const cy = Math.min(Math.max(0, (box[1] + box[3]) / 2 - ch / 2), height - ch)
+  const k = TW / cw
+  return (
+    <span
+      aria-hidden
+      className="relative block overflow-hidden rounded-lg bg-ink-800"
+      style={{ width: TW, height: TH, backgroundImage: `url("${poster}")`, backgroundRepeat: 'no-repeat', backgroundSize: `${width * k}px ${height * k}px`, backgroundPosition: `${-cx * k}px ${-cy * k}px` }}
+    >
+      <span className="absolute rounded-[3px] border-2 border-flame-400" style={{ left: (box[0] - cx) * k - 3, top: (box[1] - cy) * k - 3, width: bw * k + 6, height: bh * k + 6 }} />
+    </span>
+  )
+}
+
+export function RimSuggestionPicker({
+  poster,
+  width,
+  height,
+  state,
+  value,
+  onChange,
+  onDraw,
+}: {
+  poster: string
+  width: number
+  height: number
+  state: { loading: boolean; error: string | null; data: RimSuggestion[] | null }
+  value: Box | null
+  onChange: (b: Box | null) => void
+  onDraw: () => void
+}) {
+  const sw = width / 400
+  const same = (a: Box | null, b: RimSuggestion['box']) => !!a && a.every((v, i) => Math.abs(v - b[i]) < 0.5)
+  const pick = (b: RimSuggestion['box']) => onChange(same(value, b) ? null : [Math.round(b[0]), Math.round(b[1]), Math.round(b[2]), Math.round(b[3])])
+  const list = state.data ?? []
+
+  return (
+    <div className="space-y-3">
+      <div className="relative w-full overflow-hidden rounded-xl border border-line-strong bg-ink-800" style={{ aspectRatio: `${width} / ${height}` }}>
+        <img src={poster} alt="" draggable={false} className="absolute inset-0 h-full w-full object-fill" />
+        <svg viewBox={`0 0 ${width} ${height}`} className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
+          {list.map((s, i) => {
+            const on = same(value, s.box)
+            const [x1, y1, x2, y2] = s.box
+            const pad = Math.max(28, (x2 - x1) * 0.6)
+            return (
+              <g key={i} className="cursor-pointer" onClick={() => pick(s.box)}>
+                <rect x={x1 - pad} y={y1 - pad} width={x2 - x1 + pad * 2} height={y2 - y1 + pad * 2} fill="transparent" />
+                <rect
+                  x={x1 - sw * 2}
+                  y={y1 - sw * 2}
+                  width={x2 - x1 + sw * 4}
+                  height={y2 - y1 + sw * 4}
+                  rx={sw * 1.5}
+                  fill={on ? 'rgb(255 122 26 / 0.22)' : 'rgb(7 11 20 / 0.15)'}
+                  stroke={on ? '#ff9447' : '#ffffff'}
+                  strokeOpacity={on ? 1 : 0.85}
+                  strokeWidth={on ? sw * 1.3 : sw * 0.9}
+                  strokeDasharray={on ? undefined : `${sw * 3} ${sw * 2}`}
+                />
+                <g transform={`translate(${x1 - sw * 2}, ${y1 - sw * 13})`}>
+                  <rect width={sw * 17} height={sw * 9} rx={sw * 2} fill={on ? '#ff7a1a' : 'rgb(7 11 20 / 0.85)'} />
+                  <text x={sw * 8.5} y={sw * 6.4} textAnchor="middle" fontSize={sw * 6} fontWeight="700" fill={on ? '#070b14' : '#fff'} fontFamily="Inter Variable, sans-serif">
+                    {i + 1}
+                  </text>
+                </g>
+              </g>
+            )
+          })}
+        </svg>
+        {state.loading && (
+          <div className="absolute inset-0 grid place-items-center bg-ink-950/45">
+            <div className="skeleton absolute inset-0 rounded-none opacity-60" />
+            <span className="relative rounded-full bg-ink-950/85 px-3 py-1.5 text-xs font-semibold text-fg-2">Looking for hoops… the first look can take ~20 s</span>
+          </div>
+        )}
+      </div>
+
+      {state.loading ? (
+        <div className="flex gap-2">
+          <div className="skeleton h-[7.5rem] w-44" />
+          <div className="skeleton h-[7.5rem] w-44" />
+        </div>
+      ) : list.length ? (
+        <div role="radiogroup" aria-label="Which hoop is being played at?" className="flex flex-wrap gap-2.5">
+          {list.map((s, i) => {
+            const on = same(value, s.box)
+            return (
+              <button
+                key={i}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                onClick={() => pick(s.box)}
+                className={cn('group rounded-xl border p-1.5 text-left transition', on ? 'border-flame-500 bg-flame-500/10 shadow-[0_0_0_1px_rgb(255_122_26/0.35)]' : 'border-line-strong bg-white/[0.02] hover:border-white/30')}
+              >
+                <HoopCrop poster={poster} width={width} height={height} box={s.box} />
+                <span className="flex items-center justify-between gap-2 px-1 pt-1.5 pb-0.5 text-xs">
+                  <span className="font-semibold text-fg">
+                    Hoop {i + 1}
+                    {i === 0 && <span className="ml-1 font-normal text-fg-3">best guess</span>}
+                  </span>
+                  <span className="text-fg-3 tnum">{Math.round(s.score * 100)}%</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="rounded-xl border border-line bg-white/[0.02] p-3 text-sm text-fg-2">
+          {state.error ? <>Couldn't look for hoops ({state.error}). </> : <>No hoop spotted in this clip. </>}
+          Draw it yourself, or skip this step and the analysis will pick the hoop the ball goes toward.
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <p className="text-fg-2" aria-live="polite">
+          {value ? (
+            <>
+              <Check className="mr-1 inline size-4 text-made-text" aria-hidden />
+              Hoop set. You can tap it again to clear it.
+            </>
+          ) : list.length ? (
+            <>
+              Tap the hoop <b className="text-fg">being played at</b>.
+            </>
+          ) : null}
+        </p>
+        <Button size="sm" variant="ghost" icon={<Crosshair className="size-3.5" />} onClick={onDraw}>
+          {list.length ? 'None of these? Draw it' : 'Draw it myself'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 // ------------------------------------------------------------------ court calibration
 
 /** Used only when an older server sends no `courts` in /api/config. */
@@ -234,7 +382,7 @@ function MiniCourt({ court, next, placed }: { court: CourtSpec; next: string | n
       <text x={Wd / 2} y={viewH + 3.6} textAnchor="middle" fontSize="2.8" fill="#7d879c" fontFamily="Inter Variable, sans-serif">
         {hasFar ? 'far end' : 'camera'}
       </text>
-      {court.landmarks.map((l) => {
+      {court.landmarks.filter((l) => !/(^|_)rim$/.test(l.name)).map((l) => {
         const [cx, cy] = toSvg(l.x_ft, l.y_ft)
         if (cy > viewH + 1) return null
         const isNext = l.name === next
@@ -270,11 +418,10 @@ export function CourtPointsPicker({
   onChange: (pts: CourtPoint[]) => void
   courts?: CourtSpec[]
 }) {
-  const options = courts?.length ? courts : [FALLBACK_COURT]
-  const [courtKey, setCourtKey] = useState(options[0].key)
-  const court = options.find((c) => c.key === courtKey) ?? options[0]
-  // Filmed-half landmarks first: those are the ones a half-court camera can actually see.
-  const landmarks = [...court.landmarks].sort((a, b) => Number(b.filmed_half) - Number(a.filmed_half))
+  // The server calibrates with NBA geometry for now (RunRequest has no court field), so use NBA.
+  const court = courts?.find((c) => c.key === 'nba') ?? courts?.[0] ?? FALLBACK_COURT
+  // Rims are elevated, so they can't be floor landmarks. Filmed-half landmarks first: a half-court camera sees those.
+  const landmarks = court.landmarks.filter((l) => !/(^|_)rim$/.test(l.name)).sort((a, b) => Number(b.filmed_half) - Number(a.filmed_half))
   const placed = new Set(value.map((p) => p.name))
   const firstOpen = landmarks.find((l) => !placed.has(l.name))?.name ?? null
   const [active, setActive] = useState<string | null>(firstOpen)
@@ -287,31 +434,6 @@ export function CourtPointsPicker({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
         <MiniCourt court={court} next={current} placed={placed} />
         <div className="min-w-0 flex-1 space-y-3">
-          {options.length > 1 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <label htmlFor="court-kind" className="text-[0.8rem] font-semibold text-fg-2">
-                Court size
-              </label>
-              <div className="w-48">
-                <Select
-                  id="court-kind"
-                  value={court.key}
-                  onChange={(e) => {
-                    const next = options.find((c) => c.key === e.target.value)
-                    setCourtKey(e.target.value)
-                    if (next) onChange(value.filter((v) => next.landmarks.some((l) => l.name === v.name)))
-                  }}
-                  className="h-9"
-                >
-                  {options.map((c) => (
-                    <option key={c.key} value={c.key}>
-                      {c.label} ({Math.round(c.length_ft)}×{Math.round(c.width_ft)} ft)
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            </div>
-          )}
           <p className="text-sm text-fg-2" aria-live="polite">
             {current ? (
               <>
