@@ -1,0 +1,82 @@
+[project]
+name = "ai-press-hoops"
+version = "0.1.0"
+description = "Basketball video analysis POC: CV detection/tracking, System One decisions, and VLM reasoning behind a Gradio UI"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "gradio>=6.30,<7",
+    "pydantic>=2.14,<3",
+    "pydantic-settings>=2.15,<3",
+    "av>=19.0.1,<20",
+    "pillow>=11",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "pyarrow>=17",
+    "typer>=0.12",
+    "rich>=13",
+]
+
+[project.optional-dependencies]
+# Detection, tracking, annotation, scene cuts (Apache/MIT/BSD)
+cv = [
+    "rfdetr>=1.11.2,<1.12",
+    "supervision>=0.30.9,<0.31",
+    "trackers>=2.6.1,<2.7",
+    "scenedetect>=0.7.1,<0.8",
+]
+# Team split + court homography helpers (roboflow/sports, MIT)
+court = [
+    "sports @ git+https://github.com/roboflow/sports.git",
+]
+# Roboflow Universe basketball weights, run locally (needs a free ROBOFLOW_API_KEY).
+# Uses inference-models; the full `inference` package pins av==14.2 (conflicts with PyAV 19).
+roboflow = [
+    "inference-models>=0.39.3,<0.40",
+]
+# System Two: VLM providers
+vlm = [
+    "anthropic>=1.13,<2",
+    "openai>=3.28,<4",
+    "google-genai>=2.29,<3",
+    "ollama>=0.6.3,<0.7",
+]
+# System One: Jev + LLM-backed adapter
+decide = [
+    "typesafe-sdk>=0.7.4,<0.8",
+    "system-one-adapter[anthropic,openai,gemini]>=0.2.1,<0.3",
+]
+# AGPL-3.0: YOLOE-26 prompts + YOLO26-pose (optional; see docs/decisions.md)
+ultra = [
+    "ultralytics>=8.4.175,<8.5",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9",
+    "ruff>=0.8",
+]
+
+[project.scripts]
+hoops = "hoops.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["hoops"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: needs model weights or network",
+    "live: calls a paid API (opt-in with HOOPS_LIVE=1)",
+]

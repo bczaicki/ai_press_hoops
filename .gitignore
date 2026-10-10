@@ -1,0 +1,34 @@
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Data, runs, model weights, caches (never commit footage)
+data/
+runs/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.avi
+*.pt
+*.pth
+*.onnx
+*.mlpackage/
+.gradio/
+flagged/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
