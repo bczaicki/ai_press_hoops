@@ -7,8 +7,11 @@ import { TERMINAL_JOB, type Job } from './types'
 export type Transport = 'sse' | 'poll'
 
 const POLL_MS = 1000
-/** Some tunnels buffer SSE silently. If nothing arrives for this long, switch to polling. */
-const SSE_WATCHDOG_MS = 5000
+/**
+ * Some tunnels buffer SSE silently, and the server only emits on change (AI calls can be quiet for a
+ * while). If nothing arrives for this long, start polling too; the stream stays open alongside.
+ */
+const SSE_WATCHDOG_MS = 6000
 
 /**
  * Follow a job until it reaches a terminal status. Uses SSE (`/api/jobs/{id}/stream`) and falls
@@ -49,11 +52,13 @@ export function followJob(
         resolve(job)
       }
     }
-    const startPolling = () => {
+    const startPolling = (sseDead = false) => {
+      if (sseDead) {
+        closeSse?.()
+        closeSse = null
+      }
       if (done || polling) return
       polling = true
-      closeSse?.()
-      closeSse = null
       clearTimeout(watchdog)
       const tick = async () => {
         if (done) return
@@ -71,7 +76,7 @@ export function followJob(
     }
     const armWatchdog = () => {
       clearTimeout(watchdog)
-      watchdog = setTimeout(startPolling, SSE_WATCHDOG_MS)
+      if (!polling) watchdog = setTimeout(() => startPolling(false), SSE_WATCHDOG_MS)
     }
 
     signal.addEventListener('abort', () => fail(new DOMException('Aborted', 'AbortError')), { once: true })
@@ -89,7 +94,7 @@ export function followJob(
         armWatchdog()
         handle(job, 'sse')
       },
-      startPolling,
+      () => startPolling(true),
     )
     armWatchdog()
   })

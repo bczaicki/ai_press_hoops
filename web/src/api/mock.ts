@@ -5,6 +5,7 @@
 import { ApiError, type Api } from './client'
 import {
   MOCK_CLIP_ID,
+  MOCK_RIM,
   MOCK_RUN_B_ID,
   MOCK_RUN_ID,
   buildEvents,
@@ -230,7 +231,8 @@ export function createMockApi(): Api {
       court: [() => 'Mapping shot spots onto the court'],
       render: [(p) => `Drawing overlays (${frames(p, nFrames)})`, () => 'Encoding H.264 for the browser'],
     }
-    return STAGES.map((s) => ({ key: s.key, label: s.label, ms: jitter(ms[s.key]), skipped: !needs[s.key], messages: msgs[s.key] }))
+    // Like the server: analyze jobs have no ingest stage, and unneeded stages are simply absent.
+    return STAGES.filter((s) => s.key !== 'ingest' && needs[s.key]).map((s) => ({ key: s.key, label: s.label, ms: jitter(ms[s.key]), skipped: false, messages: msgs[s.key] }))
   }
 
   // ---------------------------------------------------------------- estimate
@@ -285,8 +287,8 @@ export function createMockApi(): Api {
     merged.sort((a, b) => a.t_start_s - b.t_start_s)
     run.events = merged
     run.team_summaries = teamSummaries(merged, run.teams)
-    const decide = run.pipeline.find((s) => s.stage === 'decide')
-    if (decide) decide.params = { ...decide.params, threshold_preset: preset, accept, reject }
+    // Like the server: the run-level pipeline entry is NOT updated; each event carries features.preset.
+    for (const e of run.events) if (e.provenance.source !== 'human') e.features = { ...e.features, preset }
   }
 
   function getRun(runId: string): RunView {
@@ -321,7 +323,7 @@ export function createMockApi(): Api {
         provider: null,
         model: null,
         latency_ms: 140,
-        decision: { ...decision, route_confidence: 0.94 },
+        decision: { ...decision, route_confidence: 0.94, probabilities: { find_moments: 0.94, stats: 0.04, explain_play: 0.01, summary: 0.01, unsupported: 0 } },
       }
     }
     if (/who|better|percent|%|stats|score|points|shoot|shot|fg/.test(text) && !/why|explain/.test(text)) {
@@ -531,6 +533,16 @@ export function createMockApi(): Api {
       return clipView(c)
     },
 
+    async rimSuggestions(clipId, signal) {
+      // Slow-ish like the real first call; the driveway clip shows the "no hoop found" state.
+      await sleep(2200)
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+      if (clipId === '7d02be91c4aa3f10') return []
+      return [
+        { box: [MOCK_RIM.x - 27, MOCK_RIM.y - 9, MOCK_RIM.x + 27, MOCK_RIM.y + 12], score: 0.71, t_s: 9.5 },
+        { box: [962, 172, 1050, 234], score: 0.23, t_s: 47.3 },
+      ]
+    },
     async estimate(req, signal) {
       await sleep(260)
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -606,7 +618,7 @@ export function createMockApi(): Api {
       requireAuth()
       await sleep(300)
       const r = runs.get(runId)
-      if (r) return clone(r)
+      if (r) return { ...clone(r), urls: { ...r.urls, poster: posters.get(r.clip.clip_id) ?? mockPosterSvg('gym') } }
       const pending = [...jobs.values()].find((j) => j.run_id === runId)
       if (pending) throw new ApiError(409, 'This run is still in progress')
       throw new ApiError(404, 'Run not found')

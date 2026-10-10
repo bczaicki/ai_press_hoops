@@ -417,7 +417,7 @@ export function teamSummaries(events: HoopsEvent[], teams: TeamRef[]) {
 export function mockNarrative(producer: string): Narrative {
   return {
     kind: 'recap',
-    text: `# White tees win the shooting battle in a scrappy 1:35 run
+    text: `### White tees win the shooting battle in a scrappy 1:35 run
 
 **White tees** opened with a smooth elbow jumper at 0:06 and never trailed for long. **Dark tees** answered at the rim — their layup at 0:22 came off a quick backdoor cut — and stayed close through the middle stretch.
 
@@ -426,17 +426,17 @@ The swing came at 0:38, when White tees buried a three from the left wing. Dark 
 - Most attempts came from inside the arc; only a few were from deep.
 - Two close calls (0:31 and 1:21) were too hard to see and are waiting for your review.`,
     question: null,
-    cited_event_ids: ['e1', 'e3', 'e5', 'e9'],
-    cited_times_s: [6.6, 22.5, 39.3, 72.5],
+    cited_event_ids: [],
+    cited_times_s: [],
     unsupported_claims: ["Dark tees' #12 hit three straight jumpers to keep it close."],
     provenance: provenance('vlm', 'summarize', producer, {
       summary: {
         headline: 'White tees win the shooting battle in a scrappy 1:35 run',
         key_moments: [
-          { ref: '0:06', description: 'Elbow jumper opens the scoring' },
-          { ref: '0:22', description: 'Backdoor cut ends in a layup' },
-          { ref: '0:38', description: 'Left-wing three swings it' },
-          { ref: '1:12', description: 'Fast-break layup restores the lead' },
+          { ref: 'S1#7 @ 00:06.60', description: 'Elbow jumper opens the scoring' },
+          { ref: 'S3#4 @ 00:22.50', description: 'Backdoor cut ends in a layup' },
+          { ref: 'S4#2 @ 00:39.30', description: 'Left-wing three swings it' },
+          { ref: '01:12.50', description: 'Fast-break layup restores the lead' },
         ],
         caveats: [
           'The ball was hard to see against the dark backdrop between 0:28 and 0:33.',
@@ -548,7 +548,7 @@ export function mockPipeline(req: { detector: string; tracker: string; decider: 
     { stage: 'detect', impl: req.detector, version: 'rfdetr 1.11.2', license: 'Apache-2.0', params: { size: 'small', imgsz: 640, stride: 2 } },
     { stage: 'track', impl: req.tracker, version: 'trackers 2.6.0', license: 'Apache-2.0', params: {} },
     { stage: 'shots', impl: 'hoops.events.shots', version: '0.1.0', license: 'project', params: { cooldown_s: 1.5 } },
-    { stage: 'decide', impl: req.decider, version: req.decider === 'jev' ? 'jev-latest' : null, license: req.decider === 'rules' ? 'project' : 'provider API terms', params: { threshold_preset: req.preset.key, accept: req.preset.accept, reject: req.preset.reject } },
+    { stage: 'decide', impl: req.decider, version: req.decider === 'jev' ? 'jev-latest' : null, license: req.decider === 'rules' ? 'project' : 'provider API terms', params: { preset: req.preset.key } },
   ]
   if (req.provider) {
     out.push({ stage: 'adjudicate', impl: req.provider, version: req.model, license: 'provider API terms', params: { effort: 'low' } })
@@ -615,6 +615,7 @@ export function buildRun(o: MockRunOptions): RunView {
     status: 'done',
     error: null,
     urls: {
+      poster: `mock:///media/clips/${o.clip.clip_id}/poster.jpg`,
       annotated: wantsVideo ? `mock://${base}/annotated.mp4` : null,
       master: `mock:///media/clips/${o.clip.clip_id}/master.mp4`,
       proxy: `mock:///media/clips/${o.clip.clip_id}/proxy_720p.mp4`,

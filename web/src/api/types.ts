@@ -332,6 +332,7 @@ export interface ThresholdPreset {
 export interface KeyLabel<K extends string = string> {
   key: K
   label: string
+  description?: string
 }
 
 export interface Caps {
@@ -382,8 +383,8 @@ export interface UploadInit {
 }
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
-/** The contract names done / running / skipped; queued / pending / failed / cancelled are accepted too. */
-export type StageStatus = 'pending' | 'queued' | 'running' | 'done' | 'skipped' | 'failed' | 'cancelled'
+/** Server sends pending / running / done / skipped / failed; 'cancelled' is UI-only (job cancelled mid-stage). */
+export type StageStatus = 'pending' | 'running' | 'done' | 'skipped' | 'failed' | 'cancelled'
 
 export interface JobStage {
   key: string
@@ -414,6 +415,13 @@ export interface ClipCard {
   footage_type: FootageType
   poster_url: string
   created_at: string
+}
+
+/** GET /api/clips/{id}/rim-suggestions: likely rims (proxy pixels), best first. */
+export interface RimSuggestion {
+  box: [number, number, number, number]
+  score: number
+  t_s: number
 }
 
 export interface ClipUrls {
@@ -492,6 +500,8 @@ export interface RunSummary {
 }
 
 export interface RunUrls {
+  /** Present on the real server (always /media/clips/<id>/poster.jpg); not in docs/api.md v0. */
+  poster?: string
   annotated: string | null
   master: string
   proxy: string
@@ -550,7 +560,16 @@ export interface Answer {
   provider: string | null
   model: string | null
   latency_ms: number
-  decision: { decider: string; route_confidence: number } | null
+  decision: {
+    decider: string
+    route_confidence: number
+    model?: string | null
+    probabilities?: Record<string, number> | null
+    cost_usd?: number | null
+    latency_ms?: number | null
+    error?: string
+    fallback?: string
+  } | null
 }
 
 export interface Agreement {

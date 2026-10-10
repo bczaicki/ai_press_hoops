@@ -139,13 +139,25 @@ interface SummaryParams {
  * read from provenance.params.summary when the backend provides them; otherwise derived from text.
  */
 export function toSummaryView(n: Narrative, events: HoopsEvent[]): SummaryView {
-  const params = (n.provenance?.params?.summary ?? null) as SummaryParams | null
+  let params = (n.provenance?.params?.summary ?? null) as SummaryParams | null
   let body = n.text.trim()
+  // Structured parsing can fail server-side, leaving raw JSON in `text`.
+  if (!params && body.startsWith('{')) {
+    try {
+      const j = JSON.parse(body) as SummaryParams
+      if (j && typeof j.narrative === 'string') {
+        params = j
+        body = j.narrative
+      }
+    } catch {
+      /* not JSON after all */
+    }
+  }
   let headline = params?.headline ?? null
-  const h1 = /^#\s+(.+)\n+/.exec(body)
-  if (h1) {
-    headline = headline ?? h1[1].trim()
-    body = body.slice(h1[0].length)
+  const h = /^#{1,4}\s+(.+)\n+/.exec(body)
+  if (h) {
+    headline = headline ?? h[1].trim()
+    body = body.slice(h[0].length)
   }
   let keyMoments: KeyMomentView[]
   if (params?.key_moments?.length) {

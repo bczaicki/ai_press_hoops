@@ -14,6 +14,7 @@ import type {
   Job,
   RecomputeResponse,
   ReviewRequest,
+  RimSuggestion,
   RunRequest,
   RunSummary,
   RunView,
@@ -69,6 +70,8 @@ export interface Api {
   clips(): Promise<ClipCard[]>
   clip(clipId: string): Promise<ClipView>
   patchClip(clipId: string, body: { footage_type: FootageType }): Promise<ClipView>
+  /** Zero-shot rim finder. The first call per clip can take ~3-25 s (model load). */
+  rimSuggestions(clipId: string, signal?: AbortSignal): Promise<RimSuggestion[]>
 
   estimate(req: RunRequest, signal?: AbortSignal): Promise<Estimate>
   createRun(req: RunRequest): Promise<CreateRunResponse>
@@ -227,6 +230,7 @@ export function createHttpApi(): Api {
     clips: () => request('GET', '/api/clips'),
     clip: (clipId) => request('GET', `/api/clips/${enc(clipId)}`),
     patchClip: (clipId, body) => request('PATCH', `/api/clips/${enc(clipId)}`, body),
+    rimSuggestions: (clipId, signal) => request('GET', `/api/clips/${enc(clipId)}/rim-suggestions`, undefined, signal),
 
     estimate: (req, signal) => request('POST', '/api/estimate', req, signal),
     createRun: (req) => request('POST', '/api/runs', req),

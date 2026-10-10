@@ -53,7 +53,8 @@ function activeShot(events: HoopsEvent[], t: number): HoopsEvent | null {
   return best
 }
 
-function ballAt(events: HoopsEvent[], t: number): { x: number; y: number } {
+function ballAt(events: HoopsEvent[], tIn: number): { x: number; y: number } {
+  const t = Math.max(0, tIn)
   const e = activeShot(events, t)
   if (e && e.shot?.image_x != null && e.shot.image_y != null) {
     const k = keyTime(e)
@@ -69,7 +70,7 @@ function ballAt(events: HoopsEvent[], t: number): { x: number; y: number } {
     const dir = sx < MOCK_RIM.x ? 1 : -1
     return { x: MOCK_RIM.x + dir * dt * 240, y: MOCK_RIM.y - 12 - 220 * dt + 420 * dt * dt }
   }
-  const handler = PLAYERS[Math.floor(t / 5.5) % PLAYERS.length]
+  const handler = PLAYERS[Math.abs(Math.floor(t / 5.5)) % PLAYERS.length]
   const hp = pos(handler, t)
   const s = scaleAt(hp.y)
   return { x: hp.x + 15 * s, y: hp.y - 6 * s - Math.abs(Math.sin(t * 8.5)) * 26 * s }

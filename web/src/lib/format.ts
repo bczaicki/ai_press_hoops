@@ -11,14 +11,17 @@ export function fmtClock(t: number, tenths = false): string {
   return `${m}:${ss}`
 }
 
-/** Parse "1:15", "1:15.4", "75", "75.4s" into seconds. Returns null for tile ids like "S2#4". */
+/**
+ * Parse a clock into seconds: "1:15", "00:12.40", "1:02:03", "75", "75.4s", or a ref with a clock
+ * inside such as "S2#4 @ 00:12.40" (the server's resolved tile refs). Null when there's no clock.
+ */
 export function parseClock(ref: string): number | null {
   const s = ref.trim()
-  const mm = /^(\d+):(\d{1,2}(?:\.\d+)?)$/.exec(s)
-  if (mm) return Number(mm[1]) * 60 + Number(mm[2])
   const sec = /^(\d+(?:\.\d+)?)\s*s?$/.exec(s)
   if (sec) return Number(sec[1])
-  return null
+  const m = /(?<![\d.])(?:(\d+):)?(\d{1,2}):(\d{1,2}(?:\.\d+)?)(?!\d)/.exec(s)
+  if (!m) return null
+  return (m[1] ? Number(m[1]) * 3600 : 0) + Number(m[2]) * 60 + Number(m[3])
 }
 
 export function fmtUsd(v: number | null | undefined): string {

@@ -92,7 +92,7 @@ function parseBlocks(src: string): Block[] {
   return out
 }
 
-const INLINE = /(\*\*[^*]+\*\*|__[^_]+__|\*[^*\s][^*]*\*|_[^_\s][^_]*_|`[^`]+`|\[[^\]]+\]\([^)\s]+\)|\b\d{1,2}:\d{2}(?:\.\d)?\b)/g
+const INLINE = /(\*\*[^*]+\*\*|__[^_]+__|\*[^*\s][^*]*\*|_[^_\s][^_]*_|`[^`]+`|\[[^\]]+\]\([^)\s]+\)|(?<![\d.:])(?:\d+:)?\d{1,2}:\d{2}(?:\.\d+)?(?![\d]))/g
 
 function inline(text: string, opts: Options, key: string): ReactNode[] {
   const out: ReactNode[] = []

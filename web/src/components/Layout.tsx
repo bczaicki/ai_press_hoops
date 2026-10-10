@@ -5,6 +5,7 @@ import { isMock } from '../api'
 import { cn, fmtUsd } from '../lib/format'
 import { CourtBackdrop, Wordmark } from './Brand'
 import { useConfig } from './ConfigContext'
+import { ErrorBoundary } from './ErrorBoundary'
 import { Tip } from './ui/tip'
 
 const NAV = [
@@ -62,7 +63,9 @@ export function Layout() {
         </div>
       </header>
       <main id="main" key={loc.pathname} className="mx-auto w-full min-w-0 max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
-        <Outlet />
+        <ErrorBoundary resetKey={loc.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
       <footer className="mx-auto w-full max-w-7xl px-4 pt-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-xs text-fg-3 sm:px-6">
         Footage stays on this computer unless you pick a cloud AI provider. Every run lists exactly what was sent where.
