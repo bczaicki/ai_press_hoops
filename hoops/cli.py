@@ -223,6 +223,40 @@ def smoke(providers: str = "all", deciders: str = "rules") -> None:
     console.print(table)
 
 
+DEMOS = [
+    # (file, footage type, rim box in proxy px or None, outputs)
+    ("plos_shot_01.ogv", "fixed_camera", "768,240,824,266", "annotated_video,events,summary,court_map"),
+    ("plos_shot_04.ogv", "fixed_camera", None, "annotated_video,events,summary"),
+    ("bandits_practice_01.webm", "handheld", None, "annotated_video,events,summary"),
+]
+
+
+@app.command()
+def demo(
+    vlm: Annotated[str, typer.Option(help="AI provider for summaries ('none' for CV only)")] = "none",
+) -> None:
+    """Download CC BY sample clips and analyze them so the UI has finished breakdowns to show."""
+    subprocess.run([sys.executable, str(ROOT / "scripts" / "fetch_samples.py")], check=True)
+    samples = ROOT / "data" / "samples"
+    for name, footage, rim, outs in DEMOS:
+        path = samples / name
+        if not path.exists():
+            console.print(f"[yellow]missing {name}; skipping[/]")
+            continue
+        console.rule(name)
+        analyze(
+            path,
+            outputs=outs,
+            vlm=vlm,
+            rim=rim,
+            footage=footage,
+            detector="rfdetr:coco",
+            tracker="botsort" if footage == "handheld" else "bytetrack",
+            decider="rules",
+            preset="balanced",
+        )
+
+
 @app.command("eval")
 def eval_cmd(run_id: str, labels: Path) -> None:
     """Score a run against hand labels (precision/recall with confidence intervals)."""

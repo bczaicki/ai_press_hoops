@@ -1,7 +1,7 @@
 # Common tasks. `make help` lists them.
 EXTRAS = --extra cv --extra vlm --extra decide --extra court
 
-.PHONY: help setup web api dev serve share test test-live lint doctor samples smoke
+.PHONY: help setup web api dev serve share test test-live lint doctor samples smoke demo
 
 help:  ## list targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -42,6 +42,9 @@ doctor:  ## check ffmpeg, MPS, keys
 
 samples:  ## download CC BY sample clips into data/samples
 	uv run python scripts/fetch_samples.py
+
+demo:  ## fetch CC BY sample clips and analyze them (VLM=claude to add AI summaries)
+	uv run hoops demo --vlm $(or $(VLM),none)
 
 smoke:  ## tiny live check of each configured AI provider
 	uv run hoops smoke
