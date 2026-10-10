@@ -421,7 +421,8 @@ function ConfigureForm({ config, clip }: { config: AppConfig; clip: ClipView }) 
           >
             {drawRim ? (
               <div className="space-y-2">
-                <RimPicker poster={clip.urls.poster} width={clip.proxy.width} height={clip.proxy.height} value={form.rimBox} onChange={(rimBox) => set({ rimBox })} />
+                {/* Draw on the frame where a hoop was spotted when there is one: the poster may not show it. */}
+                <RimPicker poster={rims.data?.[0]?.frame_url ?? clip.urls.poster} width={clip.proxy.width} height={clip.proxy.height} value={form.rimBox} onChange={(rimBox) => set({ rimBox })} />
                 {(rims.data?.length ?? 0) > 0 && (
                   <Button size="sm" variant="ghost" icon={<Crosshair className="size-3.5" />} onClick={() => setDrawRim(false)}>
                     Back to the suggested hoops

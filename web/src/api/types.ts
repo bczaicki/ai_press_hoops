@@ -422,6 +422,8 @@ export interface RimSuggestion {
   box: [number, number, number, number]
   score: number
   t_s: number
+  /** The frame the box was found on (the poster is a different moment). Older servers omit it. */
+  frame_url?: string | null
 }
 
 export interface ClipUrls {

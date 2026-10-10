@@ -2,7 +2,7 @@ import { Check, Crosshair, RotateCcw, Undo2 } from 'lucide-react'
 import { useRef, useState, type PointerEvent, type ReactNode } from 'react'
 
 import type { CourtPoint, CourtSpec, RimSuggestion } from '../api/types'
-import { cn } from '../lib/format'
+import { cn, fmtClock } from '../lib/format'
 import { Button } from './ui/button'
 
 export type Box = [number, number, number, number]
@@ -233,20 +233,31 @@ export function RimSuggestionPicker({
 }) {
   const sw = width / 400
   const same = (a: Box | null, b: RimSuggestion['box']) => !!a && a.every((v, i) => Math.abs(v - b[i]) < 0.5)
-  const pick = (b: RimSuggestion['box']) => onChange(same(value, b) ? null : [Math.round(b[0]), Math.round(b[1]), Math.round(b[2]), Math.round(b[3])])
   const list = state.data ?? []
+  // Suggestions can come from different moments; show one frame at a time with the boxes found on it.
+  const [shown, setShown] = useState<number | null>(null)
+  const selected = list.findIndex((s) => same(value, s.box))
+  const active = list[shown ?? (selected >= 0 ? selected : 0)] ?? list[0]
+  const frame = active?.frame_url ?? poster
+  const onFrame = list.filter((s) => (s.frame_url ?? poster) === frame)
+  const pick = (s: RimSuggestion) => {
+    setShown(list.indexOf(s))
+    const b = s.box
+    onChange(same(value, b) ? null : [Math.round(b[0]), Math.round(b[1]), Math.round(b[2]), Math.round(b[3])])
+  }
 
   return (
     <div className="space-y-3">
       <div className="relative w-full overflow-hidden rounded-xl border border-line-strong bg-ink-800" style={{ aspectRatio: `${width} / ${height}` }}>
-        <img src={poster} alt="" draggable={false} className="absolute inset-0 h-full w-full object-fill" />
+        <img src={frame} alt="" draggable={false} className="absolute inset-0 h-full w-full object-fill" />
         <svg viewBox={`0 0 ${width} ${height}`} className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
-          {list.map((s, i) => {
+          {onFrame.map((s) => {
+            const i = list.indexOf(s)
             const on = same(value, s.box)
             const [x1, y1, x2, y2] = s.box
             const pad = Math.max(28, (x2 - x1) * 0.6)
             return (
-              <g key={i} className="cursor-pointer" onClick={() => pick(s.box)}>
+              <g key={i} className="cursor-pointer" onClick={() => pick(s)}>
                 <rect x={x1 - pad} y={y1 - pad} width={x2 - x1 + pad * 2} height={y2 - y1 + pad * 2} fill="transparent" />
                 <rect
                   x={x1 - sw * 2}
@@ -270,6 +281,11 @@ export function RimSuggestionPicker({
             )
           })}
         </svg>
+        {active?.frame_url && (
+          <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-ink-950/80 px-2.5 py-1 text-xs font-semibold text-fg-2 tnum">
+            Frame at {fmtClock(active.t_s)}
+          </span>
+        )}
         {state.loading && (
           <div className="absolute inset-0 grid place-items-center bg-ink-950/45">
             <div className="skeleton absolute inset-0 rounded-none opacity-60" />
@@ -293,10 +309,10 @@ export function RimSuggestionPicker({
                 type="button"
                 role="radio"
                 aria-checked={on}
-                onClick={() => pick(s.box)}
+                onClick={() => pick(s)}
                 className={cn('group rounded-xl border p-1.5 text-left transition', on ? 'border-flame-500 bg-flame-500/10 shadow-[0_0_0_1px_rgb(255_122_26/0.35)]' : 'border-line-strong bg-white/[0.02] hover:border-white/30')}
               >
-                <HoopCrop poster={poster} width={width} height={height} box={s.box} />
+                <HoopCrop poster={s.frame_url ?? poster} width={width} height={height} box={s.box} />
                 <span className="flex items-center justify-between gap-2 px-1 pt-1.5 pb-0.5 text-xs">
                   <span className="font-semibold text-fg">
                     Hoop {i + 1}

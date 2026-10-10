@@ -462,23 +462,43 @@ def create_app(store: Store | None = None) -> FastAPI:
     def rim_suggestions(clip_id: str) -> list[dict]:
         """Likely rims (proxy pixels) for the 'tap the hoop being played at' step; cached per clip."""
         c = load_clip(clip_id)
-        cache = st().clip_dir(c.clip_id) / "rim_suggestions.json"
-        if cache.exists():
-            return json.loads(cache.read_text())
-        from hoops.frames import frames_at
+        clip_dir = st().clip_dir(c.clip_id)
+        cache = clip_dir / "rim_suggestions.json"
+
+        def cached() -> list[dict] | None:
+            if not cache.exists():
+                return None
+            data = json.loads(cache.read_text())
+            return data if all("frame_url" in o for o in data) else None  # pre-frame_url caches are redone
+
+        if (hit := cached()) is not None:
+            return hit
+        from hoops.frames import frames_at, to_jpeg
         from hoops.perception.rim_finder import same_hoop, suggest_rims
 
         with app.state.rim_lock:  # one OWLv2 inference at a time (GPU/memory)
-            if cache.exists():
-                return json.loads(cache.read_text())
+            if (hit := cached()) is not None:
+                return hit
             out: list[dict] = []
             times = [c.proxy.duration_s * 0.1, c.proxy.duration_s * 0.5]
-            for t, rgb in frames_at(st().abs(c.proxy.path), times):
-                for s in suggest_rims(rgb):
-                    if not any(same_hoop(s.box, tuple(o["box"])) for o in out):
-                        out.append(
-                            {"box": [round(v, 1) for v in s.box], "score": s.score, "t_s": round(t, 2)}
-                        )
+            for i, (t, rgb) in enumerate(frames_at(st().abs(c.proxy.path), times)):
+                new = [
+                    s for s in suggest_rims(rgb) if not any(same_hoop(s.box, tuple(o["box"])) for o in out)
+                ]
+                if not new:
+                    continue
+                # Boxes only line up with the frame they came from (the poster is another moment).
+                frame = f"rim_frame_{i}.jpg"
+                (clip_dir / frame).write_bytes(to_jpeg(rgb, quality=82))
+                for s in new:
+                    out.append(
+                        {
+                            "box": [round(v, 1) for v in s.box],
+                            "score": s.score,
+                            "t_s": round(t, 2),
+                            "frame_url": f"/media/clips/{c.clip_id}/{frame}",
+                        }
+                    )
             out.sort(key=lambda o: -o["score"])
             cache.write_text(json.dumps(out[:4]))
             return out[:4]

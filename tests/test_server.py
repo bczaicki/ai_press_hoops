@@ -253,3 +253,41 @@ def test_failed_and_interrupted_runs_are_marked(data_dir):
         view = c.get(f"/api/runs/{stuck.run_id}").json()
         assert view["status"] == "failed" and "Interrupted" in view["error"] and view["job_id"] is None
         assert "defaults" in c.get("/api/config").json()
+
+
+def test_rim_suggestions_come_with_their_own_frame(client, data_dir, monkeypatch):
+    import json
+
+    import numpy as np
+
+    from hoops import frames
+    from hoops.perception import rim_finder
+
+    clip = _clip()
+    Store(data_dir).save_clip(clip)
+    clip_dir = data_dir / "clips" / clip.clip_id
+    # A cache from before frame_url existed is redone rather than served with misaligned boxes.
+    (clip_dir / "rim_suggestions.json").write_text(
+        json.dumps([{"box": [1, 2, 3, 4], "score": 0.5, "t_s": 0.3}])
+    )
+
+    def fake_frames_at(path, times):
+        for t in times:
+            yield t, np.zeros((720, 1280, 3), dtype=np.uint8)
+
+    calls = iter([[], [rim_finder.RimSuggestion(box=(10, 20, 50, 40), score=0.6, hoop_box=(10, 20, 50, 60))]])
+    monkeypatch.setattr(frames, "frames_at", fake_frames_at)
+    monkeypatch.setattr(rim_finder, "suggest_rims", lambda rgb: next(calls))
+
+    out = client.get(f"/api/clips/{clip.clip_id}/rim-suggestions").json()
+    assert out == [
+        {
+            "box": [10, 20, 50, 40],
+            "score": 0.6,
+            "t_s": 1.5,
+            "frame_url": f"/media/clips/{clip.clip_id}/rim_frame_1.jpg",
+        }
+    ]
+    assert not (clip_dir / "rim_frame_0.jpg").exists()  # no hoop on that frame, nothing to show
+    assert client.get(out[0]["frame_url"]).headers["content-type"] == "image/jpeg"
+    assert client.get(f"/api/clips/{clip.clip_id}/rim-suggestions").json() == out  # cached now
