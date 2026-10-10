@@ -10,6 +10,12 @@ from hoops import config
 from tests.helpers import make_video
 
 
+@pytest.fixture(autouse=True)
+def _no_network_health_probes(monkeypatch):
+    """The server's startup billing probes call provider APIs; tests must stay offline."""
+    monkeypatch.setenv("HOOPS_HEALTH_PROBES", "0")
+
+
 @pytest.fixture
 def data_dir(tmp_path, monkeypatch) -> Path:
     """Point settings.data_dir at a temp dir for the duration of a test."""

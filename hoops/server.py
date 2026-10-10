@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import shutil
@@ -735,7 +736,8 @@ def billing_problem(provider: str, error: str) -> str | None:
 def _health_checks(app: FastAPI) -> None:
     """Free startup checks: Anthropic token counting reports an empty balance; Ollama's installed models."""
     settings = get_settings()
-    if settings.key("anthropic_api_key"):
+    probes = os.environ.get("HOOPS_HEALTH_PROBES", "1") != "0"
+    if probes and settings.key("anthropic_api_key"):
         try:
             import anthropic
 
@@ -747,6 +749,17 @@ def _health_checks(app: FastAPI) -> None:
         except Exception as exc:  # noqa: BLE001
             if why := billing_problem("claude", str(exc)):
                 app.state.provider_health["claude"] = why
+    if probes and settings.key("openai_api_key"):
+        # OpenAI has no free billing check: one ~10-token call (~$0.00001) on the cheapest model.
+        try:
+            import openai
+
+            openai.OpenAI(api_key=settings.key("openai_api_key"), max_retries=0, timeout=15).responses.create(
+                model="gpt-6-luna", input="Reply with OK.", max_output_tokens=16
+            )
+        except Exception as exc:  # noqa: BLE001
+            if why := billing_problem("openai", str(exc)):
+                app.state.provider_health["openai"] = why
     try:
         vlm = registry.vlms.create("ollama")
         resolved = vlm.resolve_model(vlm.model, explicit=False)
