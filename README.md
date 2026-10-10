@@ -11,17 +11,22 @@ It is a **proof of concept** that runs on a Mac and can be shared with a friend 
 **How it works.** Computer-vision models find the players, ball and rim in every frame. Plain code turns their tracks into shot events. A fast "System One" model makes quick typed calls on those events. Slower AI models (Claude, Gemini, OpenAI, OpenRouter, or a local Qwen model) only explain, double-check close calls, and answer questions. **Counts, times and positions always come from code, never from an AI's guess.** Vision-language models are bad at counting.
 
 ## Quickstart (macOS, Apple Silicon)
-You need [uv](https://docs.astral.sh/uv/) and Homebrew `ffmpeg` (`brew install ffmpeg`, then `brew pin ffmpeg`).
+You need [uv](https://docs.astral.sh/uv/), Node 22 (for the web UI), and Homebrew `ffmpeg` (`brew install ffmpeg`, then `brew pin ffmpeg`).
 
 ```bash
-uv sync --extra cv --extra vlm --extra decide --extra court
-cp .env.example .env          # add the API keys you have; every key is optional
+make setup                    # = uv sync --extra cv --extra vlm --extra decide --extra court + npm install (web/)
+cp .env.example .env          # add the API keys you have; every key is optional; set HOOPS_APP_PASSWORD
 uv run hoops doctor           # checks ffmpeg, GPU, keys, and Ollama, and tells you how to fix each one
-uv run hoops serve --share    # prints a link; log in with HOOPS_APP_PASSWORD from .env
+make demo                     # optional: analyze 3 CC BY sample clips so the app opens with real breakdowns
+uv run hoops serve --share    # builds the UI on first run, prints a link; log in with HOOPS_APP_PASSWORD
 ```
 
+- **Local development:** `make dev` runs the API (:8000) and the UI with hot reload (:5173).
+
 - **Missing keys.** A missing key just greys out that provider in the app.
-- **No cloud at all.** Install [Ollama](https://ollama.com) and run `ollama pull qwen3.5:4b`. That gives you a local-only mode where no footage leaves the Mac.
+- **No cloud at all.** Install [Ollama](https://ollama.com) and run `ollama pull qwen3.5:4b`, the recommended model. Any installed vision model also works: the app picks one automatically, for example `gemma4`, or pin one with `HOOPS_OLLAMA_MODEL`. That gives you a local-only mode where no footage leaves the Mac.
+- **Out of credits?** Providers whose account has no credit show as unavailable, with a link to fix billing. The local mode keeps working.
+- **Basketball-trained detector (optional).** Run `uv sync --extra roboflow` and set `ROBOFLOW_API_KEY` (free) to unlock a detector trained on NBA footage. It knows rims, referees and shot classes. The default COCO detector finds people and the ball, and you mark the rim once.
 - **Before sharing.** Read [docs/sharing.md](docs/sharing.md).
 - **Before filming.** Read [docs/filming-guide.md](docs/filming-guide.md). How a game is filmed matters more than which AI model you pick.
 
@@ -44,7 +49,7 @@ Nothing has been measured on your footage yet. The notes below are expectations 
 | Footage | Expect | Why |
 |---|---|---|
 | **Tripod, raised, half court, rim visible** | Best case. Shot attempts and makes should be mostly right. The shot chart works after calibration. | Fixed view, rim always in frame, no cuts. |
-| **TV broadcast** | Players and ball are found well, because the models were trained on NBA broadcasts. Expect some missed shots around camera cuts and zooms. Replays could double-count, so they are flagged. | Cuts, replays, zooms. The court map works only when the court lines are clearly visible. |
+| **TV broadcast** | Players and ball are found well, especially with the optional basketball detector, which was trained on NBA broadcasts. Expect some missed shots around camera cuts and zooms. Replays could double-count, so they are flagged. | Cuts, replays, zooms. The court map works only when the court lines are clearly visible. |
 | **Phone from the stands (handheld)** | Rough. Expect missed shots and some false alarms. The heatmap is image-space only. | The camera moves and zooms, and the rim leaves the frame. |
 | **Highlight reels** | The summary is fine, but don't trust the counts. | Constant cuts and replays. |
 | **Shooting practice (one hoop)** | Good for made/missed if the rim stays in frame. | Simple scene. |
