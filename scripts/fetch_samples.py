@@ -23,15 +23,19 @@ PLOS_CREDIT = (
     "Levels of Competitive Basketball', PLOS ONE 10(6): e0128885, via Wikimedia Commons. CC BY 4.0."
 )
 
+PLOS_PAPER = (
+    "Basketball-Shot-Types-and-Shot-Success-in-Different-Levels-of-Competitive-Basketball-pone.0128885"
+)
+BANDITS = "ShotBug_Press_LIVE%21_at_the_Langley_Event_Centre_for_the_Vancouver_Bandits_first_practice_of_the_year_01"
+BANDITS_CREDIT = (
+    "'ShotBug Press LIVE! at the Langley Event Centre for the Vancouver Bandits first practice of the year 01' "
+    "by ShotBug Press, via Wikimedia Commons. CC BY 3.0."
+)
+
 SAMPLES = [
-    ("plos_shot_01.ogv", f"{PLOS}/2/2e/Basketball-Shot-Types-and-Shot-Success-in-Different-Levels-of-Competitive-"
-     "Basketball-pone.0128885.s001.ogv", PLOS_CREDIT, True),
-    ("plos_shot_04.ogv", f"{PLOS}/d/df/Basketball-Shot-Types-and-Shot-Success-in-Different-Levels-of-Competitive-"
-     "Basketball-pone.0128885.s004.ogv", PLOS_CREDIT, True),
-    ("bandits_practice_01.webm", f"{PLOS}/c/ce/ShotBug_Press_LIVE%21_at_the_Langley_Event_Centre_for_the_"
-     "Vancouver_Bandits_first_practice_of_the_year_01.webm",
-     "'ShotBug Press LIVE! at the Langley Event Centre for the Vancouver Bandits first practice of the year 01' "
-     "by ShotBug Press, via Wikimedia Commons. CC BY 3.0.", True),
+    ("plos_shot_01.ogv", f"{PLOS}/2/2e/{PLOS_PAPER}.s001.ogv", PLOS_CREDIT, True),
+    ("plos_shot_04.ogv", f"{PLOS}/d/df/{PLOS_PAPER}.s004.ogv", PLOS_CREDIT, True),
+    ("bandits_practice_01.webm", f"{PLOS}/c/ce/{BANDITS}.webm", BANDITS_CREDIT, True),
 ]
 
 
@@ -55,7 +59,7 @@ def _download(url: str, out: Path, attempts: int = 5) -> None:
     for i in range(attempts):
         req = urllib.request.Request(url, headers={"User-Agent": UA})
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310 - fixed URLs
+            with urllib.request.urlopen(req, timeout=120) as resp:
                 data = resp.read()
             tmp = out.with_suffix(out.suffix + ".part")
             tmp.write_bytes(data)
