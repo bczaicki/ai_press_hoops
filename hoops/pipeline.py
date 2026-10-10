@@ -183,9 +183,10 @@ def estimate(req: RunRequest, clip: ClipMeta) -> Estimate:
 
 
 def run_analysis(
-    req: RunRequest, ctx: JobContext | None, store: Store, run_id: str | None = None
+    req: RunRequest, ctx: JobContext | None, store: Store, run_id: str | None = None, guard: Any = None
 ) -> AnalysisRun:
-    """Execute a run end to end. ``ctx`` may be None (CLI use)."""
+    """Execute a run end to end. ``ctx`` may be None (CLI use). ``guard`` is a hoops.cost.RunGuard
+    (the server passes one tied to the session ledger); without it, a fresh ledger caps this run alone."""
     t_start = time.monotonic()
     clip = store.load_clip(req.clip_id)
     if clip is None:
@@ -206,7 +207,11 @@ def run_analysis(
     proxy = store.abs(clip.proxy.path)
     master = store.abs(clip.master.path)
     preset = PRESETS.get(req.threshold_preset, PRESETS["balanced"])
-    guard = _cost_guard(req)
+    if guard is None:
+        from hoops.cost import SessionLedger
+
+        guard = SessionLedger().run_guard(_run_cap(req))
+    per_call = _per_call_estimates(req, clip)
     vlm = _make_vlm(req, run) if req.vlm else None
     decider = _make_decider(req.decider, run)
 
@@ -310,7 +315,17 @@ def run_analysis(
             try:
                 from hoops.events.escalate import type_candidates
 
-                images_for = _rim_crops_fn(proxy) if getattr(decider, "supports_images", False) else None
+                images_for = None
+                decider_provider = DECIDER_PROVIDERS.get(req.decider)
+                if getattr(decider, "supports_images", False):
+                    if decider_provider in req.egress_ok:
+                        images_for = _rim_crops_fn(proxy)
+                        run.data_egress = sorted(set(run.data_egress) | {decider_provider})
+                    else:
+                        run.warnings.append(
+                            f"System One '{req.decider}' ran on text only: allow {decider_provider} to send it "
+                            "rim crops"
+                        )
                 events, records, escalate = type_candidates(
                     candidates,
                     decider,
@@ -320,6 +335,10 @@ def run_analysis(
                     images_for=images_for,
                 )
                 run.events, run.decisions = list(events), run.decisions + list(records)
+                decide_cost = sum(r.cost_usd or 0.0 for r in records)
+                if decide_cost:
+                    guard.add(decide_cost)
+                    run.metrics.cost_usd = round(run.metrics.cost_usd + decide_cost, 6)
                 run.pipeline.append(
                     StageConfig(stage="decide", impl=req.decider, params={"preset": preset.name})
                 )
@@ -342,7 +361,7 @@ def run_analysis(
                     p.progress(
                         "adjudicate", i / len(escalate), f"Reviewing close call {i + 1}/{len(escalate)}"
                     )
-                    guard_check(guard, 0.01)
+                    guard.check(per_call["adjudicate"])
                     box = tuple(v * scale for v in cand.rim_box) if getattr(cand, "rim_box", None) else None
                     verdict, result = adjudicate(
                         vlm,
@@ -383,7 +402,7 @@ def run_analysis(
         try:
             from hoops.reason.summarize import summarize
 
-            guard_check(guard, 0.02)
+            guard.check(per_call["summarize"])
             profile = PROFILES[req.vlm.provider]
             summary, text, result = summarize(
                 vlm,
@@ -483,8 +502,7 @@ def run_analysis(
 
 
 def guard_check(guard: Any, amount: float) -> None:
-    if guard is not None:
-        guard.check(amount)
+    guard.check(amount)
 
 
 # ---------------------------------------------------------------------------------------- helpers
@@ -579,15 +597,38 @@ def _make_decider(key: str, run: AnalysisRun):
     return None
 
 
-def _cost_guard(req: RunRequest):
-    try:
-        from hoops.cost import CostGuard
+# Deciders that call a hosted provider (text state; openai-decisions can also take rim crops).
+DECIDER_PROVIDERS = {
+    "openai-decisions": "openai",
+    "adapter:claude": "claude",
+    "adapter:openai": "openai",
+    "adapter:gemini": "gemini",
+    "jev": "typesafe",
+}
 
-        settings = get_settings()
-        cap = min(req.max_cost_usd or settings.run_cost_cap_usd, settings.run_cost_cap_usd)
-        return CostGuard(run_cap=cap)
-    except Exception:  # noqa: BLE001
-        return None
+
+def _run_cap(req: RunRequest) -> float:
+    settings = get_settings()
+    return min(req.max_cost_usd or settings.run_cost_cap_usd, settings.run_cost_cap_usd)
+
+
+def _per_call_estimates(req: RunRequest, clip: ClipMeta) -> dict[str, float]:
+    """Expected USD per summarize / adjudicate call, for pre-call cap checks (conservative fallback 0.05)."""
+    out = {"summarize": 0.05, "adjudicate": 0.05}
+    if not req.vlm:
+        return out
+    try:
+        for line in estimate(req, clip).breakdown:
+            if line.stage == "summarize":
+                out["summarize"] = max(line.usd, 0.0)
+            elif line.stage == "adjudicate":
+                n = max(
+                    1, min(req.max_escalations, max(1, round(max(1, int(clip.master.duration_s / 12)) * 0.4)))
+                )
+                out["adjudicate"] = max(line.usd / n, 0.0)
+    except Exception as exc:  # noqa: BLE001
+        log.info("per-call estimates unavailable: %s", exc)
+    return out
 
 
 def _record_vlm(run: AnalysisRun, store: Store, result: Any, purpose: str, guard: Any) -> None:

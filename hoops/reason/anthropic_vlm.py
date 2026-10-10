@@ -48,7 +48,7 @@ NO_EFFORT_PREFIXES = ("claude-haiku-4", "claude-sonnet-4-5", "claude-3")
 MANY_IMAGES = 20  # above this, every image must be <= 2000 px
 MANY_IMAGES_MAX_PX = 2000
 MAX_IMAGES = 100
-MAX_REQUEST_BYTES = 24 * 1024 * 1024  # raw JPEG bytes; base64 + JSON must stay under the 32 MB request cap
+MAX_REQUEST_BYTES = 20 * 1024 * 1024  # raw JPEG bytes: x4/3 for base64 + JSON stays under the 32 MB cap
 STREAM_ABOVE_TOKENS = 16_000
 
 _FILE_IDS: dict[

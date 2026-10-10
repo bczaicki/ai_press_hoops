@@ -45,7 +45,9 @@ def test_cost_from_usage_with_cache_and_tiers():
     assert cost.cost_from_usage("claude-opus-5-5", cached) == pytest.approx(4.0 * 0.05 + 4.0 * 1.25)
     # Haiku 5.5: prompts above 100k tokens cost 5x
     assert cost.cost_from_usage("claude-haiku-5-5", Usage(200_000, 0)) == pytest.approx(0.2 * 0.5)
-    assert cost.cost_from_usage("unknown-model", u) is None
+    # Unknown models are never free: most expensive tier ($10/$50), or a conservative family price.
+    assert cost.cost_from_usage("unknown-model", u) == pytest.approx(15.0)
+    assert cost.cost_from_usage("claude-opus-9", u) == pytest.approx(5.0 + 2.5)
 
 
 def test_estimate_scales_with_images_and_is_zero_locally():
@@ -82,3 +84,17 @@ def test_cost_guard_caps(monkeypatch):
 def test_cost_guard_defaults_from_settings(data_dir):
     guard = cost.CostGuard()
     assert guard.run_cap == 0.50 and guard.session_cap == 5.00
+
+
+def test_session_ledger_reserves_and_run_guard_charges():
+    ledger = cost.SessionLedger(cap=1.0)
+    ledger.reserve(0.6)
+    with pytest.raises(cost.CostCapExceeded):
+        ledger.reserve(0.5)  # queued runs can't jointly pass the cap
+    guard = ledger.run_guard(run_cap=0.5)
+    guard.check(0.4)
+    guard.add(0.4)
+    with pytest.raises(cost.CostCapExceeded):
+        guard.check(0.2)  # run cap
+    ledger.release(0.6)
+    assert ledger.spent == pytest.approx(0.4) and ledger.reserved == 0.0

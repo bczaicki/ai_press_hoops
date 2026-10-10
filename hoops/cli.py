@@ -41,9 +41,9 @@ def serve(
     if build_web and not (ROOT / "web" / "dist" / "index.html").exists():
         _build_web()
     if share:
-        if not settings.key("app_password"):
+        if len(settings.key("app_password") or "") < 8:
             console.print(
-                "[red]Refusing to share without a password.[/] Set HOOPS_APP_PASSWORD in .env "
+                "[red]Refusing to share without a password of 8+ characters.[/] Set HOOPS_APP_PASSWORD in .env "
                 f"(e.g. HOOPS_APP_PASSWORD={secrets.token_urlsafe(9)})."
             )
             raise typer.Exit(1)

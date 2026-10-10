@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import shutil
@@ -24,9 +25,11 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from hoops import __version__, registry
 from hoops.config import OUTPUTS, PROFILES, ROOT, get_settings
+from hoops.cost import CostCapExceeded, SessionLedger
 from hoops.decide.base import PRESETS
 from hoops.health import billing_problem, probe_billing
 from hoops.jobs import JobContext, JobManager
@@ -99,11 +102,13 @@ def create_app(store: Store | None = None) -> FastAPI:
     app.state.store = store or Store()
     app.state.jobs = JobManager()
     app.state.secret = secrets.token_bytes(32)
-    app.state.spend = 0.0
     app.state.models_cache = {}
     app.state.default_models = {}
     app.state.provider_health = {}  # provider key -> human reason it can't be used right now
-    app.state.login_failures = {}
+    app.state.login_limiter = LoginLimiter()
+    app.state.ledger = SessionLedger()
+    app.state.run_locks = {}
+    app.state.rim_lock = threading.Lock()
     registry.load_plugins()
     threading.Thread(target=_health_checks, args=(app,), daemon=True).start()
 
@@ -124,15 +129,17 @@ def create_app(store: Store | None = None) -> FastAPI:
         if not token or "." not in token:
             return None
         b64, sig = token.rsplit(".", 1)
+        if not re.fullmatch(r"[0-9a-f]{64}", sig):
+            return None
         try:
             payload = base64.urlsafe_b64decode(b64.encode())
-        except Exception:  # noqa: BLE001
+            good = hmac.new(app.state.secret, payload, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(good.encode(), sig.encode()):
+                return None
+            user, exp = payload.decode().rsplit("|", 1)
+            return user if int(exp) > time.time() else None
+        except Exception:  # noqa: BLE001 - malformed cookie = not logged in
             return None
-        good = hmac.new(app.state.secret, payload, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(good, sig):
-            return None
-        user, exp = payload.decode().rsplit("|", 1)
-        return user if int(exp) > time.time() else None
 
     @app.middleware("http")
     async def require_auth(request: Request, call_next):
@@ -157,19 +164,28 @@ def create_app(store: Store | None = None) -> FastAPI:
 
     @app.post("/api/login")
     def login(body: LoginBody, request: Request, response: Response) -> dict:
-        ip = request.client.host if request.client else "?"
-        fails = app.state.login_failures.get(ip, 0)
-        if fails >= 5:
-            time.sleep(min(5.0, 0.5 * fails))  # slow brute force from one address
         expected = settings.key("app_password")
         if expected is None:
             return {"ok": True}
+        ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
+            request.client.host if request.client else "?"
+        )
+        wait = app.state.login_limiter.blocked(ip)
+        if wait:
+            raise HTTPException(
+                429, f"Too many attempts. Try again in {wait} s.", headers={"Retry-After": str(wait)}
+            )
         if not hmac.compare_digest(body.password.encode(), expected.encode()):
-            app.state.login_failures[ip] = fails + 1
+            app.state.login_limiter.fail(ip)
             raise HTTPException(401, "Wrong password")
-        app.state.login_failures.pop(ip, None)
+        secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
         response.set_cookie(
-            COOKIE, make_token(settings.app_user), max_age=SESSION_TTL_S, httponly=True, samesite="lax"
+            COOKIE,
+            make_token(settings.app_user),
+            max_age=SESSION_TTL_S,
+            httponly=True,
+            samesite="lax",
+            secure=secure,
         )
         return {"ok": True}
 
@@ -257,7 +273,7 @@ def create_app(store: Store | None = None) -> FastAPI:
                 "max_upload_mb": settings.max_upload_mb,
                 "max_clip_seconds": settings.max_clip_seconds,
             },
-            "spend": {"session_usd": round(app.state.spend, 4)},
+            "spend": {"session_usd": round(app.state.ledger.spent, 4)},
         }
 
     # ------------------------------------------------------------------ uploads
@@ -267,6 +283,9 @@ def create_app(store: Store | None = None) -> FastAPI:
     def upload_init(body: UploadInit) -> dict:
         if body.size_bytes > settings.max_upload_mb * 1024 * 1024:
             raise HTTPException(400, f"File is larger than {settings.max_upload_mb} MB")
+        if body.size_bytes <= 0:
+            raise HTTPException(400, "Empty file")
+        _sweep_stale_uploads(uploads_dir)
         upload_id = f"u_{secrets.token_hex(6)}"
         d = uploads_dir / upload_id
         d.mkdir(parents=True)
@@ -284,12 +303,19 @@ def create_app(store: Store | None = None) -> FastAPI:
     @app.put("/api/uploads/{upload_id}/chunks/{index}")
     async def upload_chunk(upload_id: str, index: int, request: Request) -> dict:
         d = upload_dir(upload_id)
-        if index < 0 or index > 100_000:
+        meta = UploadInit.model_validate_json((d / "meta.json").read_text())
+        n_chunks = -(-meta.size_bytes // CHUNK_SIZE)
+        if not 0 <= index < n_chunks:
             raise HTTPException(400, "Bad chunk index")
-        data = await request.body()
-        if len(data) > CHUNK_SIZE * 2:
-            raise HTTPException(400, "Chunk too large")
-        (d / f"{index:06d}.part").write_bytes(data)
+        expected = min(CHUNK_SIZE, meta.size_bytes - index * CHUNK_SIZE)
+        buf = bytearray()
+        async for piece in request.stream():  # stop reading as soon as the chunk is too big
+            buf += piece
+            if len(buf) > expected:
+                raise HTTPException(400, "Chunk is larger than declared")
+        if len(buf) != expected:
+            raise HTTPException(400, f"Chunk {index} should be {expected} bytes, got {len(buf)}")
+        await asyncio.to_thread((d / f"{index:06d}.part").write_bytes, bytes(buf))
         received = sum(p.stat().st_size for p in d.glob("*.part"))
         return {"received_bytes": received}
 
@@ -298,26 +324,31 @@ def create_app(store: Store | None = None) -> FastAPI:
         d = upload_dir(upload_id)
         meta = UploadInit.model_validate_json((d / "meta.json").read_text())
         parts = sorted(d.glob("*.part"))
-        if not parts:
-            raise HTTPException(400, "No data uploaded")
-        suffix = Path(meta.filename).suffix.lower()[:8] or ".mp4"
+        n_chunks = -(-meta.size_bytes // CHUNK_SIZE)
+        if [p.name for p in parts] != [f"{i:06d}.part" for i in range(n_chunks)]:
+            raise HTTPException(400, f"Upload incomplete: {len(parts)} of {n_chunks} chunks received")
+        if sum(p.stat().st_size for p in parts) != meta.size_bytes:
+            raise HTTPException(400, "Upload size doesn't match the declared size")
+        suffix = re.sub(r"[^a-z0-9.]", "", Path(meta.filename).suffix.lower())[:8] or ".mp4"
         src = d / f"source{suffix}"
         with src.open("wb") as out:
             for part in parts:
                 with part.open("rb") as f:
                     shutil.copyfileobj(f, out)
                 part.unlink()
-        if src.stat().st_size != meta.size_bytes:
-            log.warning("upload %s size mismatch: %s != %s", upload_id, src.stat().st_size, meta.size_bytes)
 
         def work(ctx: JobContext) -> None:
             from hoops.ingest import ingest
 
-            ctx.start("ingest")
-            clip = ingest(src, original_filename=meta.filename, store=st(), progress=ctx.callback("ingest"))
-            ctx.set(clip_id=clip.clip_id)
-            ctx.done("ingest", clip.normalization.summary or "Ready")
-            shutil.rmtree(d, ignore_errors=True)
+            try:
+                ctx.start("ingest")
+                clip = ingest(
+                    src, original_filename=meta.filename, store=st(), progress=ctx.callback("ingest")
+                )
+                ctx.set(clip_id=clip.clip_id)
+                ctx.done("ingest", clip.normalization.summary or "Ready")
+            finally:
+                shutil.rmtree(d, ignore_errors=True)  # success or failure: don't leave uploads on disk
 
         job = app.state.jobs.submit("ingest", work, stages=["ingest"])
         return {"job_id": job.job_id}
@@ -423,14 +454,20 @@ def create_app(store: Store | None = None) -> FastAPI:
         from hoops.frames import frames_at
         from hoops.perception.rim_finder import same_hoop, suggest_rims
 
-        out: list[dict] = []
-        for t, rgb in frames_at(st().abs(c.proxy.path), [c.proxy.duration_s * 0.1, c.proxy.duration_s * 0.5]):
-            for s in suggest_rims(rgb):
-                if not any(same_hoop(s.box, tuple(o["box"])) for o in out):
-                    out.append({"box": [round(v, 1) for v in s.box], "score": s.score, "t_s": round(t, 2)})
-        out.sort(key=lambda o: -o["score"])
-        cache.write_text(json.dumps(out[:4]))
-        return out[:4]
+        with app.state.rim_lock:  # one OWLv2 inference at a time (GPU/memory)
+            if cache.exists():
+                return json.loads(cache.read_text())
+            out: list[dict] = []
+            times = [c.proxy.duration_s * 0.1, c.proxy.duration_s * 0.5]
+            for t, rgb in frames_at(st().abs(c.proxy.path), times):
+                for s in suggest_rims(rgb):
+                    if not any(same_hoop(s.box, tuple(o["box"])) for o in out):
+                        out.append(
+                            {"box": [round(v, 1) for v in s.box], "score": s.score, "t_s": round(t, 2)}
+                        )
+            out.sort(key=lambda o: -o["score"])
+            cache.write_text(json.dumps(out[:4]))
+            return out[:4]
 
     # ------------------------------------------------------------------ runs
     def run_view(run: AnalysisRun) -> dict:
@@ -456,6 +493,13 @@ def create_app(store: Store | None = None) -> FastAPI:
         except FileNotFoundError as exc:
             raise HTTPException(404, "Unknown run") from exc
 
+    locks_guard = threading.Lock()
+
+    def run_lock(run_id: str) -> threading.Lock:
+        """Serialize load-modify-save of one run.json (Q&A, review, add-event, recompute)."""
+        with locks_guard:
+            return app.state.run_locks.setdefault(run_id, threading.Lock())
+
     @app.post("/api/estimate")
     def estimate_route(req: RunRequest) -> dict:
         return estimate(req, load_clip(req.clip_id)).model_dump()
@@ -469,14 +513,29 @@ def create_app(store: Store | None = None) -> FastAPI:
             raise HTTPException(
                 400, f"Allow sending frames to {PROFILES[req.vlm.provider].sends_data_to} first"
             )
+        if req.vlm and req.vlm.model is not None:
+            allowed = set(app.state.models_cache.get(req.vlm.provider) or [])
+            allowed.add(
+                app.state.default_models.get(req.vlm.provider, PROFILES[req.vlm.provider].default_model)
+            )
+            if req.vlm.model not in allowed:
+                raise HTTPException(
+                    400, f"Model '{req.vlm.model}' isn't offered for {PROFILES[req.vlm.provider].label}"
+                )
         est = estimate(req, clip_meta)
-        if app.state.spend + est.estimate_usd > settings.session_cost_cap_usd:
-            raise HTTPException(402, f"This would pass the ${settings.session_cost_cap_usd:.2f} session cap")
+        ledger: SessionLedger = app.state.ledger
+        try:
+            ledger.reserve(est.estimate_usd)  # held until the run ends, so queued runs can't overshoot
+        except CostCapExceeded as exc:
+            raise HTTPException(402, str(exc)) from exc
         run_id = Store.new_run_id()
+        run_cap = min(req.max_cost_usd or settings.run_cost_cap_usd, settings.run_cost_cap_usd)
 
         def work(ctx: JobContext) -> None:
-            run = run_analysis(req, ctx, st(), run_id=run_id)
-            app.state.spend += run.metrics.cost_usd
+            try:
+                run = run_analysis(req, ctx, st(), run_id=run_id, guard=ledger.run_guard(run_cap))
+            finally:
+                ledger.release(est.estimate_usd)
             for call in run.vlm_calls:
                 if call.error and (why := billing_problem(call.provider, call.error)):
                     app.state.provider_health[call.provider] = why
@@ -498,25 +557,33 @@ def create_app(store: Store | None = None) -> FastAPI:
     def download(run_id: str) -> FileResponse:
         load_run(run_id)
         run_dir = st().runs_dir / run_id
-        tmp = Path(tempfile.mkstemp(suffix=".zip")[1])
+        fd, name = tempfile.mkstemp(suffix=".zip")
+        os.close(fd)
+        tmp = Path(name)
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
             for p in run_dir.rglob("*"):
                 if p.is_file():
                     z.write(p, p.relative_to(run_dir))
-        return FileResponse(tmp, media_type="application/zip", filename=f"hoops-{run_id}.zip")
+        return FileResponse(
+            tmp,
+            media_type="application/zip",
+            filename=f"hoops-{run_id}.zip",
+            background=BackgroundTask(tmp.unlink, missing_ok=True),
+        )
 
     @app.post("/api/runs/{run_id}/recompute")
     def recompute(run_id: str, body: RecomputeBody) -> dict:
         from hoops.events.escalate import recompute as do_recompute
         from hoops.events.stats import compute_stats
 
-        r = load_run(run_id)
         preset = PRESETS.get(body.threshold_preset)
         if preset is None:
             raise HTTPException(400, "Unknown preset")
-        r.events = do_recompute(r.events, preset)
-        r.team_summaries = compute_stats(r.events, r.teams)
-        st().save_run(r)
+        with run_lock(run_id):
+            r = load_run(run_id)
+            r.events = do_recompute(r.events, preset)
+            r.team_summaries = compute_stats(r.events, r.teams)
+            st().save_run(r)
         return {
             "events": [e.model_dump(mode="json") for e in r.events],
             "team_summaries": [s.model_dump(mode="json") for s in r.team_summaries],
@@ -524,20 +591,25 @@ def create_app(store: Store | None = None) -> FastAPI:
 
     @app.post("/api/runs/{run_id}/events/{event_id}/review")
     def review(run_id: str, event_id: str, body: ReviewBody) -> dict:
-        r = load_run(run_id)
-        ev = next((e for e in r.events if e.event_id == event_id), None)
-        if ev is None:
-            raise HTTPException(404, "Unknown event")
-        ev.review = "accepted" if body.action == "accept" else "rejected"
-        ev.status = "confirmed" if body.action == "accept" else "rejected"
-        if body.note:
-            ev.description = body.note
-        _refresh_stats(r)
-        st().save_run(r)
-        return ev.model_dump(mode="json")
+        with run_lock(run_id):
+            r = load_run(run_id)
+            ev = next((e for e in r.events if e.event_id == event_id), None)
+            if ev is None:
+                raise HTTPException(404, "Unknown event")
+            ev.review = "accepted" if body.action == "accept" else "rejected"
+            ev.status = "confirmed" if body.action == "accept" else "rejected"
+            if body.note:
+                ev.description = body.note
+            _refresh_stats(r)
+            st().save_run(r)
+            return ev.model_dump(mode="json")
 
     @app.post("/api/runs/{run_id}/events")
     def add_event(run_id: str, body: AddEventBody) -> dict:
+        with run_lock(run_id):
+            return _add_event(run_id, body)
+
+    def _add_event(run_id: str, body: AddEventBody) -> dict:
         r = load_run(run_id)
         n = sum(1 for e in r.events if e.provenance.source == "human") + 1
         result = {"made_shot": "made", "missed_shot": "missed"}.get(body.type, "unknown")
@@ -567,17 +639,24 @@ def create_app(store: Store | None = None) -> FastAPI:
         r = load_run(run_id)
         provider = body.provider or next((c.provider for c in r.vlm_calls), None)
         vlm = None
+        consented: str | None = None
         if provider:
             if provider not in PROFILES:
                 raise HTTPException(400, f"Unknown provider {provider}")
+            model = body.model
+            if model is not None:
+                allowed = set(app.state.models_cache.get(provider) or [])
+                allowed.add(app.state.default_models.get(provider, PROFILES[provider].default_model))
+                if model not in allowed:
+                    raise HTTPException(400, f"Model '{model}' isn't offered for {PROFILES[provider].label}")
             try:
-                vlm = registry.vlms.create(provider)
+                vlm = registry.vlms.create(provider, model=model) if model else registry.vlms.create(provider)
             except Exception as exc:
                 raise HTTPException(503, str(exc)) from exc
             if not PROFILES[provider].local:
-                r.data_egress = sorted(
-                    set(r.data_egress) | {provider}
-                )  # explicit pick in the Ask panel = consent
+                consented = (
+                    provider  # an explicit pick in the Ask panel (which names the recipient) = consent
+                )
         decider = None
         for key in [s.impl for s in r.pipeline if s.stage == "decide"] + ["rules"]:
             try:
@@ -590,12 +669,18 @@ def create_app(store: Store | None = None) -> FastAPI:
         for i in range(0, len(turns) - 1, 2):
             if turns[i].role == "user" and turns[i + 1].role == "assistant":
                 history.append((turns[i].text, turns[i + 1].text))
-        if app.state.spend >= settings.session_cost_cap_usd:
-            vlm = None  # cap reached: answer from the event log only
+        ledger: SessionLedger = app.state.ledger
+        if vlm is not None and ledger.remaining() < ASK_RESERVE_USD:
+            vlm = None  # session cap nearly reached: answer from the event log only
         res = answer(
             r, body.question, vlm=vlm, decider=decider, history=history, video=st().abs(r.clip.master.path)
         )
-        app.state.spend += res.cost_usd or 0.0
+        ledger.add(res.cost_usd or 0.0)
+        lock = run_lock(run_id)
+        lock.acquire()
+        r = load_run(run_id)  # re-read: other edits may have landed while the model was answering
+        if consented and res.provider:
+            r.data_egress = sorted(set(r.data_egress) | {consented})
         r.narratives.append(
             Narrative(
                 kind="qa",
@@ -611,7 +696,10 @@ def create_app(store: Store | None = None) -> FastAPI:
             )
         )
         r.metrics.cost_usd = round(r.metrics.cost_usd + (res.cost_usd or 0.0), 6)
-        st().save_run(r)
+        try:
+            st().save_run(r)
+        finally:
+            lock.release()
         return {
             "answer": res.answer,
             "route": res.route,
@@ -682,6 +770,60 @@ def _courts() -> list[dict]:
             }
         )
     return out
+
+
+ASK_RESERVE_USD = 0.05  # below this much session budget, Q&A answers from the event log only
+STALE_UPLOAD_S = 6 * 3600
+
+
+class LoginLimiter:
+    """Sliding-window limits on failed logins: per client and global. Never sleeps (no worker-thread stalls)."""
+
+    def __init__(self, per_client: int = 8, global_limit: int = 30, window_s: float = 600.0):
+        self.per_client, self.global_limit, self.window_s = per_client, global_limit, window_s
+        self._fails: dict[str, list[float]] = {}
+        self._all: list[float] = []
+        self._lock = threading.Lock()
+
+    def _prune(self, now: float) -> None:
+        cutoff = now - self.window_s
+        self._all = [t for t in self._all if t > cutoff]
+        for k in list(self._fails):
+            self._fails[k] = [t for t in self._fails[k] if t > cutoff]
+            if not self._fails[k]:
+                del self._fails[k]
+
+    def blocked(self, client: str) -> int:
+        """Seconds until ``client`` may try again (0 = allowed)."""
+        now = time.monotonic()
+        with self._lock:
+            self._prune(now)
+            mine = self._fails.get(client, [])
+            waits = []
+            if len(mine) >= self.per_client:
+                waits.append(mine[0] + self.window_s - now)
+            if len(self._all) >= self.global_limit:
+                waits.append(self._all[0] + self.window_s - now)
+            return max(1, int(max(waits))) if waits else 0
+
+    def fail(self, client: str) -> None:
+        now = time.monotonic()
+        with self._lock:
+            self._fails.setdefault(client, []).append(now)
+            self._all.append(now)
+
+
+def _sweep_stale_uploads(uploads_dir: Path) -> None:
+    """Remove abandoned chunked uploads (older than STALE_UPLOAD_S)."""
+    if not uploads_dir.exists():
+        return
+    cutoff = time.time() - STALE_UPLOAD_S
+    for d in uploads_dir.glob("u_*"):
+        try:
+            if d.is_dir() and d.stat().st_mtime < cutoff:
+                shutil.rmtree(d, ignore_errors=True)
+        except OSError as exc:
+            log.info("couldn't sweep %s: %s", d, exc)
 
 
 def _refresh_stats(run: AnalysisRun) -> None:

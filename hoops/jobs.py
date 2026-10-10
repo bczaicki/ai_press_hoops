@@ -232,5 +232,16 @@ def _now() -> datetime:
 
 
 def _friendly(exc: Exception) -> str:
+    """Error text safe to show a friend: no local paths (which include the macOS user name)."""
+    from pathlib import Path
+
+    from hoops.config import get_settings
+
     text = str(exc) or type(exc).__name__
+    for path, alias in (
+        (str(get_settings().data_dir.resolve()), "<data>"),
+        (str(get_settings().data_dir), "<data>"),
+        (str(Path.home()), "~"),
+    ):
+        text = text.replace(path, alias)
     return text if len(text) < 500 else text[:500] + "…"

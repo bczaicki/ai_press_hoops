@@ -156,6 +156,19 @@ PRICES: dict[str, tuple[float, float]] = {
     "gpt-6-astra": (10.00, 50.00),
     "jev-latest": (0.042, 0.0),
     "jev-1.13.0": (0.042, 0.0),
+    # Older/fallback models that can answer (e.g. Opus 5.5's server-side refusal fallback targets)
+    "claude-fable-5-1": (10.00, 50.00),
+    "claude-fable-5": (10.00, 50.00),
+    "claude-opus-5": (5.00, 25.00),
+    "claude-opus-4-8": (5.00, 25.00),
+    "claude-opus-4-7": (5.00, 25.00),
+    "claude-sonnet-5": (2.00, 10.00),
+    "claude-sonnet-4-6": (3.00, 15.00),
+    "claude-haiku-4-5": (1.00, 5.00),
+    "gpt-6-sol": (2.00, 10.00),
+    "gemini-3.7-flash": (0.75, 3.75),
+    "gemini-3.6-flash": (0.75, 3.75),
+    "gemini-3.5-flash": (1.50, 9.00),
 }
 
 OUTPUTS = ("annotated_video", "events", "summary", "court_map")

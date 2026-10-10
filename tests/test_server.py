@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -82,11 +83,15 @@ def test_auth_required_when_password_set(data_dir, monkeypatch):
     config.get_settings.cache_clear()
 
 
-def test_chunked_upload_assembles_file(client, data_dir):
+def test_chunked_upload_assembles_file(client, data_dir, monkeypatch):
+    import hoops.server as srv
+
+    monkeypatch.setattr(srv, "CHUNK_SIZE", 600)
     payload = b"x" * 1000
     up = client.post("/api/uploads", json={"filename": "clip.mov", "size_bytes": len(payload)}).json()
     uid = up["upload_id"]
     assert client.put(f"/api/uploads/{uid}/chunks/0", content=payload[:600]).json()["received_bytes"] == 600
+    assert client.post(f"/api/uploads/{uid}/complete").status_code == 400  # chunk 1 missing
     assert client.put(f"/api/uploads/{uid}/chunks/1", content=payload[600:]).json()["received_bytes"] == 1000
     job_id = client.post(f"/api/uploads/{uid}/complete").json()["job_id"]
     for _ in range(100):  # not a real video: the ingest job must fail cleanly, not crash the server
@@ -95,6 +100,71 @@ def test_chunked_upload_assembles_file(client, data_dir):
             break
         time.sleep(0.05)
     assert job["status"] == "failed" and job["error"]
+    assert not (data_dir / "uploads" / uid).exists()  # cleaned up even when ingest fails
+
+
+def test_upload_rejects_out_of_bounds_and_oversize_chunks(client, monkeypatch):
+    import hoops.server as srv
+
+    monkeypatch.setattr(srv, "CHUNK_SIZE", 100)
+    uid = client.post("/api/uploads", json={"filename": "a.mp4", "size_bytes": 150}).json()["upload_id"]
+    assert (
+        client.put(f"/api/uploads/{uid}/chunks/2", content=b"x" * 50).status_code == 400
+    )  # index past the end
+    assert client.put(f"/api/uploads/{uid}/chunks/100000", content=b"x").status_code == 400
+    assert (
+        client.put(f"/api/uploads/{uid}/chunks/0", content=b"x" * 101).status_code == 400
+    )  # bigger than declared
+    assert client.put(f"/api/uploads/{uid}/chunks/1", content=b"x" * 49).status_code == 400  # wrong size
+    assert client.post("/api/uploads", json={"filename": "big.mp4", "size_bytes": 10**12}).status_code == 400
+
+
+def test_malformed_cookie_is_just_logged_out(data_dir, monkeypatch):
+    monkeypatch.setenv("HOOPS_APP_PASSWORD", "hunter2")
+    config.get_settings.cache_clear()
+    with TestClient(create_app(Store(data_dir))) as c:
+        for bad in ["abc.zz", "%%%." + "0" * 64, "x" * 5000, "Zm9vfDE=." + "f" * 64]:
+            c.cookies.set("hoops_session", bad)
+            assert c.get("/api/session").status_code == 200
+            assert c.get("/api/config").status_code == 401
+    config.get_settings.cache_clear()
+
+
+def test_login_limiter_returns_429_without_blocking(data_dir, monkeypatch):
+    monkeypatch.setenv("HOOPS_APP_PASSWORD", "hunter2")
+    config.get_settings.cache_clear()
+    with TestClient(create_app(Store(data_dir))) as c:
+        codes = [c.post("/api/login", json={"password": "nope"}).status_code for _ in range(9)]
+        assert codes[:8] == [401] * 8 and codes[8] == 429
+        t0 = time.monotonic()
+        r = c.post("/api/login", json={"password": "hunter2"})
+        assert r.status_code == 429 and int(r.headers["retry-after"]) > 0
+        assert time.monotonic() - t0 < 1.0  # no sleeping in worker threads
+        assert c.get("/api/health").status_code == 200
+    config.get_settings.cache_clear()
+
+
+def test_session_cap_reserves_queued_runs(client, data_dir, monkeypatch):
+    import hoops.server as srv
+    from hoops.pipeline import Estimate
+
+    store = Store(data_dir)
+    store.save_clip(_clip())
+    monkeypatch.setattr(srv, "estimate", lambda req, clip: Estimate(estimate_usd=2.0, breakdown=[]))
+
+    def slow_run(*a, **k):  # keep the reservation held for a moment
+        time.sleep(0.3)
+        return SimpleNamespace(vlm_calls=[])
+
+    monkeypatch.setattr(srv, "run_analysis", slow_run)
+    body = {"clip_id": _clip().clip_id, "outputs": ["events"]}
+    responses = [client.post("/api/runs", json=body) for _ in range(4)]
+    assert [r.status_code for r in responses] == [200, 200, 402, 402]  # $5 cap: two $2 runs fit
+    for r in responses[:2]:  # let queued jobs finish while the patches are still active
+        for _ in range(100):
+            if client.get(f"/api/jobs/{r.json()['job_id']}").json()["status"] in ("done", "failed"):
+                break
+            time.sleep(0.05)
 
 
 def test_media_is_confined_to_data_dir(client, data_dir):

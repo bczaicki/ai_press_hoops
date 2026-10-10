@@ -252,6 +252,10 @@ def plan_normalization(info: dict, filters: Iterable[str], *, interlaced: bool |
     # Rotation: the ffmpeg CLI autorotates by default; we only record it (and size the output for it).
     report.rotation_deg = rotation_of(vs)
     w, h = int(vs.get("width") or 0), int(vs.get("height") or 0)
+    if w * h > 8192 * 8192 or max(w, h) > 16384:
+        raise IngestError(
+            f"This video's frame size ({w}x{h}) is too large to process here. Export it at 4K or less."
+        )
     sar = _sar(vs)
     disp_w, disp_h = round(w * sar), h
     if report.rotation_deg in (90, 270):
@@ -540,7 +544,7 @@ def ingest(
     args += ["-g", str(gop), "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]
     args += ["-c:a", "aac", "-b:a", "160k", "-ac", "2", "-ar", "48000", "-max_muxing_queue_size", "1024"]
     args += ["-movflags", "+faststart", str(tmp_master)]
-    timeout = 300 + 30 * plan.duration_s
+    timeout = min(300 + 30 * plan.duration_s, 1800)  # a 10-minute clip encodes in a few minutes on a laptop
     try:
         _run_ffmpeg(
             args,

@@ -87,9 +87,37 @@ def base_model(model: str) -> str:
     return m.split("/", 1)[1].split(":")[0] if "/" in m else m
 
 
+# Conservative prices for models missing from config.PRICES (e.g. a refusal fallback answered by another model,
+# or an OpenRouter slug): never price an unknown model at $0, or the spend caps can't trip.
+FAMILY_PRICES: list[tuple[str, tuple[float, float]]] = [
+    ("claude-fable", (10.0, 50.0)),
+    ("claude-mythos", (10.0, 50.0)),
+    ("claude-opus", (5.0, 25.0)),
+    ("claude-sonnet", (3.0, 15.0)),
+    ("claude-haiku", (1.0, 5.0)),
+    ("gpt-6-astra", (10.0, 50.0)),
+    ("gpt", (5.0, 30.0)),
+    ("gemini", (2.0, 12.0)),
+    ("jev", (0.042, 0.0)),
+]
+UNKNOWN_PRICE = (10.0, 50.0)
+
+
 def price_for(model: str) -> tuple[float, float] | None:
     """USD per 1M (input, output) tokens, or None when unknown."""
     return PRICES.get(base_model(model))
+
+
+def price_or_conservative(model: str) -> tuple[float, float]:
+    """Known price, else a conservative family price, else the most expensive tier."""
+    known = price_for(model)
+    if known is not None:
+        return known
+    base = base_model(model).lower()
+    for prefix, price in FAMILY_PRICES:
+        if base.startswith(prefix):
+            return price
+    return UNKNOWN_PRICE
 
 
 def _image_dims(jpeg: bytes) -> tuple[int, int]:
@@ -155,9 +183,9 @@ def estimate(req: AnalyzeRequest, profile_key: str, model: str) -> float:
 
 def cost_from_usage(model: str, usage: Usage) -> float | None:
     """Actual USD from normalized usage; None when the model's price is unknown."""
-    price = price_for(model)
-    if price is None:
-        return None
+    if model == "local" or model.startswith("local:"):
+        return 0.0
+    price = price_or_conservative(model)
     base = base_model(model)
     total_in = usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens
     p_in, p_out = _tiered(base, total_in, price)
@@ -247,3 +275,72 @@ class CostGuard:
             self._run = 0.0
             if run_cap is not None:
                 self.run_cap = run_cap
+
+
+class SessionLedger:
+    """Session-wide spend with reservations, so queued runs can't jointly overshoot the cap (thread-safe)."""
+
+    def __init__(self, cap: float | None = None):
+        self.cap = get_settings().session_cost_cap_usd if cap is None else cap
+        self.spent = 0.0
+        self.reserved = 0.0
+        self._lock = threading.Lock()
+
+    def reserve(self, amount: float) -> None:
+        """Hold ``amount`` for a submitted run; raises CostCapExceeded when spent + held + amount > cap."""
+        amount = max(0.0, amount)
+        with self._lock:
+            if self.spent + self.reserved + amount > self.cap + 1e-9:
+                left = max(0.0, self.cap - self.spent - self.reserved)
+                raise CostCapExceeded(
+                    f"This run is estimated at ${amount:.2f}, but only ${left:.2f} of the ${self.cap:.2f} "
+                    "session cap is left (including runs still queued)."
+                )
+            self.reserved += amount
+
+    def release(self, amount: float) -> None:
+        with self._lock:
+            self.reserved = max(0.0, self.reserved - max(0.0, amount))
+
+    def add(self, amount: float | None) -> None:
+        if amount:
+            with self._lock:
+                self.spent += amount
+
+    def remaining(self) -> float:
+        with self._lock:
+            return max(0.0, self.cap - self.spent)
+
+    def run_guard(self, run_cap: float | None = None) -> RunGuard:
+        return RunGuard(self, run_cap)
+
+
+class RunGuard:
+    """Per-run cap on top of a SessionLedger: check before each call, add actual cost right after it."""
+
+    def __init__(self, ledger: SessionLedger, run_cap: float | None = None):
+        self.ledger = ledger
+        self.run_cap = get_settings().run_cost_cap_usd if run_cap is None else run_cap
+        self.spent = 0.0
+        self._lock = threading.Lock()
+
+    def check(self, amount: float) -> None:
+        amount = max(0.0, amount or 0.0)
+        with self._lock:
+            if self.spent + amount > self.run_cap + 1e-9:
+                raise CostCapExceeded(
+                    f"This would cost about ${amount:.3f}; the run has ${max(0.0, self.run_cap - self.spent):.3f} "
+                    f"left of its ${self.run_cap:.2f} cap."
+                )
+        if self.ledger.spent + amount > self.ledger.cap + 1e-9:
+            raise CostCapExceeded(
+                f"This would cost about ${amount:.3f}; the session has ${self.ledger.remaining():.3f} left "
+                f"of its ${self.ledger.cap:.2f} cap."
+            )
+
+    def add(self, amount: float | None) -> None:
+        if not amount:
+            return
+        with self._lock:
+            self.spent += amount
+        self.ledger.add(amount)
