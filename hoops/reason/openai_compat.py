@@ -392,12 +392,28 @@ def _chat_usage(resp: Any, model: str) -> tuple[Usage, float | None]:
 # ====================================================================== Ollama (local, native client)
 
 
+# Installed-model preference when the configured default isn't pulled (vision-capable families first).
+OLLAMA_VISION_HINTS = (
+    "qwen3.5",
+    "qwen3-vl",
+    "qwen2.5vl",
+    "gemma4",
+    "gemma3",
+    "llama3.2-vision",
+    "minicpm-v",
+    "llava",
+    "moondream",
+)
+
+
 class OllamaVLM:
     key = "ollama"
 
     def __init__(self, model: str | None = None, *, client: Any = None, host: str | None = None):
         p = PROFILES["ollama"]
-        self.model = model or p.default_model
+        self._explicit = model is not None
+        self.model = model or get_settings().ollama_model or p.default_model
+        self._installed: list[str] | None = None
         self.caps = _caps(p)
         self.host = host or get_settings().ollama_host
         if client is None:
@@ -421,9 +437,25 @@ class OllamaVLM:
         msgs.append(msg)
         return msgs
 
+    def resolve_model(self, wanted: str, explicit: bool) -> str:
+        """``wanted`` if installed; otherwise (unless explicitly requested) the best installed vision model."""
+        if self._installed is None:
+            try:
+                self._installed = [m.model for m in self.client.list().models if m.model]
+            except Exception:  # noqa: BLE001 - unreachable server is reported by chat()
+                self._installed = []
+        names = self._installed
+        if not names or explicit or wanted in names or f"{wanted}:latest" in names:
+            return wanted
+        for hint in OLLAMA_VISION_HINTS:
+            for name in names:
+                if name.startswith(hint):
+                    return name
+        return wanted
+
     def analyze(self, req: AnalyzeRequest) -> AnalyzeResult:
         t0 = now()
-        model = req.model or self.model
+        model = self.resolve_model(req.model or self.model, explicit=bool(req.model) or self._explicit)
         if req.video is not None and not req.images:
             return failure(
                 self.key, model, t0, "Local models can't watch video; send frames (contact sheets)."
@@ -449,7 +481,10 @@ class OllamaVLM:
                 self.key, model, t0, f"Ollama isn't reachable at {self.host}; start the Ollama app ({exc})."
             )
         except Exception as exc:  # noqa: BLE001
-            return failure(self.key, model, t0, short_error(exc))
+            msg = short_error(exc)
+            if "not found" in msg.lower():
+                msg = f"Model '{model}' isn't installed locally: run `ollama pull {model}`."
+            return failure(self.key, model, t0, msg)
         message = getattr(resp, "message", None)
         text = getattr(message, "content", None) or ""
         usage = Usage(

@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     default_vlm: str = Field("claude", validation_alias="HOOPS_VLM")
 
     ollama_host: str = Field("http://localhost:11434", validation_alias="OLLAMA_HOST")
+    ollama_model: str | None = Field(None, validation_alias="HOOPS_OLLAMA_MODEL")  # else profile default
     mlx_vlm_url: str = Field("http://localhost:8080/v1", validation_alias="HOOPS_MLX_VLM_URL")
 
     def key(self, name: str) -> str | None:
