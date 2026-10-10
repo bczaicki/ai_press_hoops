@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import tempfile
@@ -518,7 +519,8 @@ def ingest(
     (d / "probe.json").write_text(json.dumps(info, indent=2))
 
     master, proxy, poster = d / "master.mp4", d / "proxy_720p.mp4", d / "poster.jpg"
-    tmp_master, tmp_proxy = d / ".master.tmp.mp4", d / ".proxy.tmp.mp4"
+    tag = secrets.token_hex(4)  # concurrent ingests of the same bytes never share temp files
+    tmp_master, tmp_proxy = d / f".master.{tag}.tmp.mp4", d / f".proxy.{tag}.tmp.mp4"
     gop = max(1, round(2 * float(Fraction(plan.fps))))
     args = [*plan.input_args, "-protocol_whitelist", "file", "-i", str(source)]
     args += ["-map", "0:v:0", "-map", "0:a:0?", "-dn", "-sn", "-map_metadata", "-1", "-map_chapters", "-1"]
