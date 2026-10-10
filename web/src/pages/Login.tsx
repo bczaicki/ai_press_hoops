@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import { ArrowRight, Eye, EyeOff, Lock } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 
@@ -31,7 +30,7 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
   return (
     <div className="grid min-h-dvh place-items-center px-4 py-10">
       <CourtBackdrop />
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="w-full max-w-sm">
+      <div className="w-full max-w-sm">
         <div className="mb-8 flex justify-center">
           <Wordmark />
         </div>
@@ -71,7 +70,7 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
           </Button>
           {isMock && <p className="mt-4 text-center text-xs text-fg-3">Demo mode: the password is “hoops”.</p>}
         </form>
-      </motion.div>
+      </div>
     </div>
   )
 }

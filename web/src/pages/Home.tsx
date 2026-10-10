@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import { ChevronRight, Clapperboard, Clock3, Cpu, Map as MapIcon, MessageSquareText, ScanEye, Sparkles, Table2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
@@ -26,10 +25,10 @@ export function Home() {
 
   return (
     <div className="space-y-12">
-      <section>
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mb-6 max-w-3xl">
+      <section className="grid items-center gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-10">
+        <div className="min-w-0">
           <div className="eyebrow mb-2 text-flame-300">Tonight's film session</div>
-          <h1 className="font-display text-5xl leading-[0.95] font-bold tracking-wide text-fg uppercase sm:text-6xl">
+          <h1 className="font-display text-[2.6rem] leading-[0.95] font-bold tracking-wide text-fg uppercase sm:text-6xl">
             Upload a clip. <span className="text-flame-500">Get the breakdown.</span>
           </h1>
           <p className="mt-3 max-w-xl text-base text-fg-2 sm:text-lg">
@@ -42,8 +41,10 @@ export function Home() {
               </li>
             ))}
           </ul>
-        </motion.div>
-        <UploadZone />
+        </div>
+        <div className="min-w-0">
+          <UploadZone />
+        </div>
       </section>
 
       <section aria-labelledby="runs-h">
@@ -54,8 +55,8 @@ export function Home() {
           <GridSkeleton />
         ) : runs.data?.length ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {runs.data.slice(0, 9).map((r, i) => (
-              <RunTile key={r.run_id} run={r} poster={posterByClip.get(r.clip_id) ?? posterForClip(r.clip_id)} index={i} />
+            {runs.data.slice(0, 9).map((r) => (
+              <RunTile key={r.run_id} run={r} poster={posterByClip.get(r.clip_id) ?? posterForClip(r.clip_id)} />
             ))}
           </div>
         ) : (
@@ -73,8 +74,8 @@ export function Home() {
           <GridSkeleton />
         ) : clips.data?.length ? (
           <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
-            {clips.data.map((c, i) => (
-              <ClipTile key={c.clip_id} clip={c} index={i} />
+            {clips.data.map((c) => (
+              <ClipTile key={c.clip_id} clip={c} />
             ))}
           </div>
         ) : (
@@ -115,10 +116,10 @@ function GridSkeleton() {
   )
 }
 
-function RunTile({ run, poster, index }: { run: RunSummary; poster: string; index: number }) {
+function RunTile({ run, poster }: { run: RunSummary; poster: string }) {
   const statusTone = run.status === 'done' ? 'made' : run.status === 'running' ? 'flame' : run.status === 'failed' ? 'miss' : 'muted'
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index, 6) * 0.04 }}>
+    <div className="min-w-0">
       <Link to={`/runs/${run.run_id}`} className="group glass block overflow-hidden rounded-[var(--radius-card)] transition hover:border-flame-500/40">
         <Poster src={poster} alt="">
           <div className="absolute top-3 left-3">
@@ -144,13 +145,13 @@ function RunTile({ run, poster, index }: { run: RunSummary; poster: string; inde
           <ChevronRight className="ml-auto size-4 shrink-0 text-fg-3 transition group-hover:translate-x-0.5 group-hover:text-flame-400" aria-hidden />
         </div>
       </Link>
-    </motion.div>
+    </div>
   )
 }
 
-function ClipTile({ clip, index }: { clip: ClipCard; index: number }) {
+function ClipTile({ clip }: { clip: ClipCard }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index, 8) * 0.03 }}>
+    <div className="min-w-0">
       <Link to={`/clips/${clip.clip_id}`} className="group glass block overflow-hidden rounded-2xl transition hover:border-flame-500/40" aria-label={`Analyze ${clip.original_filename ?? 'clip'}`}>
         <Poster src={clip.poster_url} alt="">
           <span className="absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-md bg-ink-950/80 px-1.5 py-0.5 text-[0.7rem] font-semibold text-fg tnum">
@@ -165,6 +166,6 @@ function ClipTile({ clip, index }: { clip: ClipCard; index: number }) {
           </div>
         </div>
       </Link>
-    </motion.div>
+    </div>
   )
 }

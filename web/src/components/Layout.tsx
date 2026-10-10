@@ -17,14 +17,14 @@ export function Layout() {
   const { config } = useConfig()
   const loc = useLocation()
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="flex min-h-dvh min-w-0 flex-col overflow-x-clip">
       <CourtBackdrop />
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:rounded-lg focus:bg-flame-500 focus:px-3 focus:py-2 focus:text-ink-950">
         Skip to content
       </a>
       <header className="sticky top-0 z-40 border-b border-line bg-ink-950/75 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
-          <NavLink to="/" className="mr-auto rounded-lg" aria-label="Press Hoops home">
+          <NavLink to="/" className="mr-auto min-w-0 rounded-lg" aria-label="Press Hoops home">
             <Wordmark />
           </NavLink>
           {isMock && (
@@ -41,7 +41,7 @@ export function Layout() {
               </NavLink>
             </Tip>
           )}
-          <nav aria-label="Main" className="flex items-center gap-1">
+          <nav aria-label="Main" className="flex shrink-0 items-center gap-0.5 sm:gap-1">
             {NAV.map(({ to, label, icon: Icon, end }) => (
               <NavLink
                 key={to}
@@ -49,7 +49,7 @@ export function Layout() {
                 end={end}
                 className={({ isActive }) =>
                   cn(
-                    'flex h-9 items-center gap-2 rounded-xl px-2.5 text-sm font-semibold transition-colors sm:px-3',
+                    'flex h-9 min-w-9 items-center justify-center gap-2 rounded-xl px-2 text-sm font-semibold transition-colors sm:px-3',
                     isActive ? 'bg-white/[0.08] text-fg' : 'text-fg-2 hover:bg-white/[0.05] hover:text-fg',
                   )
                 }
@@ -61,7 +61,7 @@ export function Layout() {
           </nav>
         </div>
       </header>
-      <main id="main" key={loc.pathname} className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+      <main id="main" key={loc.pathname} className="mx-auto w-full min-w-0 max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
         <Outlet />
       </main>
       <footer className="mx-auto w-full max-w-7xl px-4 pt-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-xs text-fg-3 sm:px-6">

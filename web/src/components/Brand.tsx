@@ -23,13 +23,13 @@ export function BallMark({ className }: { className?: string }) {
 
 export function Wordmark({ className }: { className?: string }) {
   return (
-    <span className={cn('flex items-center gap-2.5', className)}>
-      <BallMark />
+    <span className={cn('flex min-w-0 items-center gap-2.5', className)}>
+      <BallMark className="size-8 shrink-0 sm:size-9" />
       <span className="leading-none">
-        <span className="block font-display text-[1.45rem] font-bold tracking-[0.06em] text-fg uppercase">
+        <span className="block font-display text-[1.3rem] font-bold tracking-[0.06em] whitespace-nowrap text-fg uppercase sm:text-[1.45rem]">
           Press<span className="text-flame-500">·</span>Hoops
         </span>
-        <span className="block font-display text-[0.62rem] font-semibold tracking-[0.32em] text-fg-3 uppercase">AI film room</span>
+        <span className="block font-display text-[0.62rem] font-semibold tracking-[0.32em] whitespace-nowrap text-fg-3 uppercase">AI film room</span>
       </span>
     </span>
   )

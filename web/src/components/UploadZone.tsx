@@ -166,14 +166,14 @@ export function UploadZone() {
       />
       <AnimatePresence mode="wait" initial={false}>
         {phase.kind === 'idle' || phase.kind === 'error' ? (
-          <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative flex flex-col items-center px-6 py-12 text-center sm:py-16">
+          <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative flex min-w-0 flex-col items-center px-4 py-10 text-center sm:px-6 sm:py-14">
             <motion.div
               animate={dragging ? { y: -6, scale: 1.08 } : { y: 0, scale: 1 }}
               className="grid size-16 place-items-center rounded-2xl bg-flame-500 text-ink-950 shadow-[0_18px_40px_-12px_rgb(255_122_26/0.7)]"
             >
               <CloudUpload className="size-8" aria-hidden />
             </motion.div>
-            <h2 className="mt-5 font-display text-3xl font-bold tracking-wide text-fg uppercase sm:text-4xl">{dragging ? 'Drop it like a bounce pass' : 'Drop a game clip here'}</h2>
+            <h2 className="mt-5 font-display text-[1.7rem] leading-tight font-bold tracking-wide text-fg uppercase sm:text-4xl">{dragging ? 'Drop it like a bounce pass' : 'Drop a game clip here'}</h2>
             <p className="mt-2 max-w-md text-fg-2">
               Phone video is perfect: .mov, .mp4, portrait or landscape, HDR is fine. Up to {config?.caps.max_upload_mb ?? 500} MB and {fmtClock(config?.caps.max_clip_seconds ?? 600)} long.
             </p>
@@ -196,7 +196,7 @@ export function UploadZone() {
             )}
           </motion.div>
         ) : (
-          <motion.div key="busy" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative px-6 py-10 sm:px-10 sm:py-12">
+          <motion.div key="busy" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative min-w-0 px-4 py-10 sm:px-10 sm:py-12">
             <div className="flex items-center gap-4">
               <div className="grid size-12 shrink-0 place-items-center rounded-xl border border-line bg-white/[0.05]">
                 <Film className="size-6 text-flame-400" aria-hidden />
