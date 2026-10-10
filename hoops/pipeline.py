@@ -114,7 +114,7 @@ def estimate(req: RunRequest, clip: ClipMeta) -> Estimate:
         if profile is None:
             warnings.append(f"Unknown AI provider '{req.vlm.provider}'")
         else:
-            model = req.vlm.model or profile.default_model
+            model = req.vlm.model or default_model(profile.key)
             if req.vlm.provider not in req.egress_ok and not profile.local:
                 warnings.append(f"Allow sending frames to {profile.sends_data_to} to use {profile.label}")
             try:
@@ -532,10 +532,21 @@ def _stage_failed(run: AnalysisRun, p: _Progress, stage: str, exc: Exception) ->
     p.fail(stage, str(exc)[:200])
 
 
+def default_model(provider: str) -> str:
+    """The model a provider will actually use by default (local: the best installed vision model)."""
+    if provider == "ollama":
+        try:
+            vlm = registry.vlms.create("ollama")
+            return vlm.resolve_model(vlm.model, explicit=False)
+        except Exception as exc:  # noqa: BLE001
+            log.info("local model resolution skipped: %s", exc)
+    return PROFILES[provider].default_model
+
+
 def _model(req: RunRequest) -> str:
-    return (req.vlm.model if req.vlm else None) or (
-        PROFILES[req.vlm.provider].default_model if req.vlm else ""
-    )
+    if not req.vlm:
+        return ""
+    return req.vlm.model or default_model(req.vlm.provider)
 
 
 def _make_vlm(req: RunRequest, run: AnalysisRun):
