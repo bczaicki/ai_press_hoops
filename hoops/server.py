@@ -11,7 +11,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import re
 import secrets
 import shutil
@@ -29,6 +28,7 @@ from pydantic import BaseModel
 from hoops import __version__, registry
 from hoops.config import OUTPUTS, PROFILES, ROOT, get_settings
 from hoops.decide.base import PRESETS
+from hoops.health import billing_problem, probe_billing
 from hoops.jobs import JobContext, JobManager
 from hoops.pipeline import RunRequest, estimate, run_analysis, stages_for
 from hoops.schemas import AnalysisRun, ClipMeta, Event, EventType, Narrative, Provenance, ShotInfo
@@ -728,57 +728,9 @@ def _agreement(a: AnalysisRun, b: AnalysisRun, tol_s: float = 1.0) -> dict:
     }
 
 
-BILLING_PATTERNS = (
-    "credit balance",
-    "insufficient_quota",
-    "no credits",
-    "credit_balance",
-    "billing",
-    "quota",
-)
-CONSOLES = {
-    "claude": "console.anthropic.com",
-    "openai": "platform.openai.com",
-    "gemini": "aistudio.google.com",
-    "openrouter": "openrouter.ai",
-}
-
-
-def billing_problem(provider: str, error: str) -> str | None:
-    """A friendly reason when a provider error means 'out of credits / no billing', else None."""
-    if any(p in error.lower() for p in BILLING_PATTERNS):
-        where = CONSOLES.get(provider, "the provider's console")
-        return f"{PROFILES[provider].label} account is out of credits (add billing at {where})"
-    return None
-
-
 def _health_checks(app: FastAPI) -> None:
-    """Free startup checks: Anthropic token counting reports an empty balance; Ollama's installed models."""
-    settings = get_settings()
-    probes = os.environ.get("HOOPS_HEALTH_PROBES", "1") != "0"
-    if probes and settings.key("anthropic_api_key"):
-        try:
-            import anthropic
-
-            anthropic.Anthropic(
-                api_key=settings.key("anthropic_api_key"), max_retries=0
-            ).messages.count_tokens(
-                model=PROFILES["claude"].default_model, messages=[{"role": "user", "content": "hi"}]
-            )
-        except Exception as exc:  # noqa: BLE001
-            if why := billing_problem("claude", str(exc)):
-                app.state.provider_health["claude"] = why
-    if probes and settings.key("openai_api_key"):
-        # OpenAI has no free billing check: one ~10-token call (~$0.00001) on the cheapest model.
-        try:
-            import openai
-
-            openai.OpenAI(api_key=settings.key("openai_api_key"), max_retries=0, timeout=15).responses.create(
-                model="gpt-6-luna", input="Reply with OK.", max_output_tokens=16
-            )
-        except Exception as exc:  # noqa: BLE001
-            if why := billing_problem("openai", str(exc)):
-                app.state.provider_health["openai"] = why
+    """Startup checks: provider billing (see hoops.health) and the local model Ollama will actually run."""
+    app.state.provider_health.update(probe_billing())
     try:
         vlm = registry.vlms.create("ollama")
         resolved = vlm.resolve_model(vlm.model, explicit=False)

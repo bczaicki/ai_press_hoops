@@ -124,6 +124,19 @@ def _key_checks() -> list[Check]:
         out.append(
             Check(f"key:{field.upper()}", ok, detail, None if ok else f"add {field.upper()} to .env", "warn")
         )
+    try:
+        from hoops.health import probe_billing
+
+        problems = probe_billing()
+    except Exception as exc:  # noqa: BLE001 - doctor never raises
+        problems = {}
+        out.append(Check("billing", False, f"couldn't check provider billing: {exc}", None, "warn"))
+    for provider, why in problems.items():
+        out.append(
+            Check(
+                f"billing:{provider}", False, why, "add credits, or pick another provider in the app", "warn"
+            )
+        )
     pw = s.app_password is not None and bool(s.app_password.get_secret_value())
     out.append(
         Check(
