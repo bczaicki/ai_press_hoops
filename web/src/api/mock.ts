@@ -245,10 +245,10 @@ export function createMockApi(): Api {
       const per = req.vlm.provider === 'ollama' ? 0 : (VLM_PRICE_PER_MIN[req.vlm.model] ?? 0.1)
       const effort = EFFORT_MULT[req.vlm.effort] ?? 1
       const nv = req.vlm.native_video ? 0.6 : 1
-      const adj = per * minutes * 0.35 * effort * nv
+      const adj = per * minutes * 0.2 * effort * nv
       lines.push({ stage: 'adjudicate', provider: req.vlm.provider, model: req.vlm.model, usd: adj, note: 'Close calls only (~2 windows)' })
       if (req.outputs.includes('summary')) {
-        lines.push({ stage: 'summarize', provider: req.vlm.provider, model: req.vlm.model, usd: per * minutes * 0.65 * effort * nv, note: 'Recap + claim check' })
+        lines.push({ stage: 'summarize', provider: req.vlm.provider, model: req.vlm.model, usd: per * minutes * 0.4 * effort * nv, note: 'Recap + claim check' })
       }
     }
     const total = lines.reduce((s, l) => s + l.usd, 0)
