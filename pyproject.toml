@@ -5,7 +5,10 @@ description = "Basketball video analysis POC: CV detection/tracking, System One 
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-    "gradio>=6.30,<7",
+    "fastapi>=0.143,<1",
+    "uvicorn[standard]>=0.54",
+    "httpx>=0.28",
+    "gradio>=6.30,<7",  # only for its share tunnel (`hoops serve --share`)
     "pydantic>=2.14,<3",
     "pydantic-settings>=2.15,<3",
     "av>=19.0.1,<20",
