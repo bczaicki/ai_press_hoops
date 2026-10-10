@@ -421,12 +421,12 @@ def create_app(store: Store | None = None) -> FastAPI:
         if cache.exists():
             return json.loads(cache.read_text())
         from hoops.frames import frames_at
-        from hoops.perception.rim_finder import suggest_rims
+        from hoops.perception.rim_finder import same_hoop, suggest_rims
 
         out: list[dict] = []
         for t, rgb in frames_at(st().abs(c.proxy.path), [c.proxy.duration_s * 0.1, c.proxy.duration_s * 0.5]):
             for s in suggest_rims(rgb):
-                if all(_box_iou(s.box, tuple(o["box"])) < 0.3 for o in out):
+                if not any(same_hoop(s.box, tuple(o["box"])) for o in out):
                     out.append({"box": [round(v, 1) for v in s.box], "score": s.score, "t_s": round(t, 2)})
         out.sort(key=lambda o: -o["score"])
         cache.write_text(json.dumps(out[:4]))
@@ -682,13 +682,6 @@ def _courts() -> list[dict]:
             }
         )
     return out
-
-
-def _box_iou(a: tuple, b: tuple) -> float:
-    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
-    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
-    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - ix * iy
-    return ix * iy / union if union > 0 else 0.0
 
 
 def _refresh_stats(run: AnalysisRun) -> None:

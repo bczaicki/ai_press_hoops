@@ -38,3 +38,10 @@ def test_suggest_rims_on_sample_poster():
     ((_, rgb),) = frames_at(clip, [0.3])
     sugg = suggest_rims(rgb)
     assert sugg and sugg[0].score > 0.2
+
+
+def test_same_hoop_merges_panned_boxes():
+    from hoops.perception.rim_finder import same_hoop
+
+    assert same_hoop((779, 237, 830, 261), (765, 255, 819, 278))  # one hoop, camera moved
+    assert not same_hoop((335, 62, 450, 104), (1088, 172, 1155, 205))  # two different hoops

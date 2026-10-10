@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 
 MODEL_ID = "google/owlv2-base-patch16-ensemble"
 QUERIES = ["a basketball hoop", "a basketball rim with net", "an orange basketball rim"]
+MIN_SCORE = 0.35  # on the sample clips real rims scored >= 0.40, backboard/sign false positives <= 0.34
 
 Box = tuple[float, float, float, float]
 
@@ -58,7 +59,17 @@ def _iou(a: Box, b: Box) -> float:
     return inter / union if union > 0 else 0.0
 
 
-def suggest_rims(image_rgb: np.ndarray, max_n: int = 3, threshold: float = 0.15) -> list[RimSuggestion]:
+def same_hoop(a: Box, b: Box) -> bool:
+    """Boxes whose centers are within one rim width (camera pans move the box a little)."""
+    acx, acy = (a[0] + a[2]) / 2, (a[1] + a[3]) / 2
+    bcx, bcy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+    width = max(a[2] - a[0], b[2] - b[0], 1.0)
+    return _iou(a, b) >= 0.3 or ((acx - bcx) ** 2 + (acy - bcy) ** 2) ** 0.5 <= width
+
+
+def suggest_rims(
+    image_rgb: np.ndarray, max_n: int = 3, threshold: float = 0.15, min_score: float = MIN_SCORE
+) -> list[RimSuggestion]:
     """Up to ``max_n`` likely rims in one RGB frame, best first (merged across queries)."""
     import torch
     from PIL import Image
@@ -80,7 +91,9 @@ def suggest_rims(image_rgb: np.ndarray, max_n: int = 3, threshold: float = 0.15)
             raw.append((float(score), (x1, y1, x2, y2)))
     kept: list[RimSuggestion] = []
     for score, box in sorted(raw, reverse=True):
-        if all(_iou(box, k.hoop_box) < 0.3 for k in kept):
+        if score < min_score:
+            break
+        if not any(same_hoop(box, k.hoop_box) for k in kept):
             kept.append(RimSuggestion(box=rim_from_hoop(box), score=round(score, 3), hoop_box=box))
         if len(kept) >= max_n:
             break
